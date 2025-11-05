@@ -24,9 +24,18 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadData() async {
     if (!mounted) return;
 
+    debugPrint('╔════════════════════════════════════════╗');
+    debugPrint('║         HOME SCREEN - LOADING          ║');
+    debugPrint('╚════════════════════════════════════════╝');
+
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final sessionProvider = Provider.of<SessionProvider>(context, listen: false);
     final nfcProvider = Provider.of<NfcProvider>(context, listen: false);
+
+    debugPrint('🔐 Auth Status:');
+    debugPrint('   - isLoggedIn: ${authProvider.isLoggedIn}');
+    debugPrint('   - user: ${authProvider.user?.username ?? "null"}');
+    debugPrint('   - token: ${authProvider.token != null ? "exists (${authProvider.token!.length} chars)" : "null"}');
 
     // Refresh user data
     await authProvider.refreshUser();
@@ -36,6 +45,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Check NFC availability
     await nfcProvider.checkNfcAvailability();
+
+    debugPrint('✅ Home data loaded');
   }
 
   Future<void> _logout() async {
@@ -90,6 +101,14 @@ class _HomeScreenState extends State<HomeScreen> {
         duration: Duration(seconds: 2),
       ),
     );
+  }
+
+  void _navigateToCheckpointList() {
+    debugPrint('🔄 Navigating to checkpoint list...');
+    debugPrint('   - Current route: ${ModalRoute.of(context)?.settings.name}');
+    
+    // Navigate without removing current route from stack
+    Navigator.pushNamed(context, '/checkpoint_list');
   }
 
   @override
@@ -271,9 +290,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           title: 'เริ่มรอบการตรวจ',
                           subtitle: 'เริ่มรอบการตรวจใหม่',
                           color: AppConfig.successColor,
-                          onTap: () {
-                            Navigator.pushNamed(context, '/checkpoint_list');
-                          },
+                          onTap: _navigateToCheckpointList,
                         ),
                         _buildMenuCard(
                           icon: Icons.history,
@@ -287,9 +304,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           title: 'จุดตรวจ',
                           subtitle: 'รายการจุดตรวจทั้งหมด',
                           color: AppConfig.warningColor,
-                          onTap: () {
-                            Navigator.pushNamed(context, '/checkpoint_list');
-                          },
+                          onTap: _navigateToCheckpointList,
                         ),
                         _buildMenuCard(
                           icon: Icons.settings,

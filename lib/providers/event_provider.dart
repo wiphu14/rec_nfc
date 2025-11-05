@@ -1,18 +1,23 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/event_service.dart';
+import '../models/event_record_model.dart';
 
 class EventProvider with ChangeNotifier {
   final EventService _eventService = EventService();
 
   bool _isCreating = false;
+  bool _isLoading = false;
   String? _errorMessage;
   Map<String, dynamic>? _lastCreatedEvent;
+  List<EventRecordModel> _events = [];
 
   // Getters
   bool get isCreating => _isCreating;
+  bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   Map<String, dynamic>? get lastCreatedEvent => _lastCreatedEvent;
+  List<EventRecordModel> get events => _events;
 
   // Create event with image
   Future<bool> createEventWithImage({
@@ -124,5 +129,50 @@ class EventProvider with ChangeNotifier {
   void clearError() {
     _errorMessage = null;
     notifyListeners();
+  }
+
+  // Load event history
+  Future<void> loadEventHistory() async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      // For now, we'll create some mock data since we don't have a dedicated history endpoint
+      // In a real app, you would call your API to get historical events
+      _events = [
+        EventRecordModel(
+          id: 1,
+          checkpointName: 'จุดตรวจ A1',
+          checkpointCode: 'A001',
+          status: 'completed',
+          timestamp: DateTime.now().subtract(const Duration(hours: 2)),
+          note: 'ตรวจสอบเรียบร้อย',
+        ),
+        EventRecordModel(
+          id: 2,
+          checkpointName: 'จุดตรวจ B2',
+          checkpointCode: 'B002',
+          status: 'completed',
+          timestamp: DateTime.now().subtract(const Duration(hours: 5)),
+          note: 'พบความผิดปกติเล็กน้อย',
+        ),
+        EventRecordModel(
+          id: 3,
+          checkpointName: 'จุดตรวจ C3',
+          checkpointCode: 'C003',
+          status: 'pending',
+          timestamp: DateTime.now().subtract(const Duration(hours: 8)),
+          note: null,
+        ),
+      ];
+      
+      _isLoading = false;
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = 'เกิดข้อผิดพลาดในการโหลดประวัติ: ${e.toString()}';
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 }

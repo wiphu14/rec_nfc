@@ -1,3 +1,5 @@
+// lib/services/event_service.dart
+
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
@@ -7,7 +9,7 @@ import 'storage_service.dart';
 class EventService {
   final StorageService _storageService = StorageService();
 
-  // Create event record with image upload
+  /// Create event record with image upload
   Future<Map<String, dynamic>> createEventWithImage({
     required int sessionId,
     required int checkpointId,
@@ -35,7 +37,7 @@ class EventService {
       if (imageFile != null) {
         var uploadRequest = http.MultipartRequest(
           'POST',
-          Uri.parse('${ApiConfig.baseUrl}/api/events/upload_image.php'),
+          Uri.parse(ApiConfig.uploadImageEndpoint), // ✅ ใช้ ApiConfig
         );
 
         uploadRequest.headers['Authorization'] = 'Bearer $token';
@@ -45,9 +47,17 @@ class EventService {
 
         final uploadStreamedResponse = await uploadRequest.send();
         final uploadResponse = await http.Response.fromStream(uploadStreamedResponse);
+        
+        if (uploadResponse.statusCode != 200) {
+          return {
+            'success': false,
+            'message': 'อัพโหลดรูปภาพไม่สำเร็จ (HTTP ${uploadResponse.statusCode})',
+          };
+        }
+
         final uploadData = jsonDecode(uploadResponse.body);
 
-        if (uploadResponse.statusCode != 200 || uploadData['success'] != true) {
+        if (uploadData['success'] != true) {
           return {
             'success': false,
             'message': 'อัพโหลดรูปภาพไม่สำเร็จ: ${uploadData['message']}',
@@ -60,7 +70,7 @@ class EventService {
 
       // Create event record
       final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/api/events/create_event.php'),
+        Uri.parse(ApiConfig.createEventEndpoint), // ✅ ใช้ ApiConfig
         headers: ApiConfig.getHeaders(token: token),
         body: jsonEncode({
           'session_id': sessionId,
@@ -102,7 +112,7 @@ class EventService {
     }
   }
 
-  // Create event record (existing method - keep for compatibility)
+  /// Create event record (without image upload - for backward compatibility)
   Future<Map<String, dynamic>> createEvent({
     required int sessionId,
     required int checkpointId,
@@ -125,7 +135,7 @@ class EventService {
       }
 
       final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/api/events/create_event.php'),
+        Uri.parse(ApiConfig.createEventEndpoint),
         headers: ApiConfig.getHeaders(token: token),
         body: jsonEncode({
           'session_id': sessionId,

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
 import '../models/checkpoint_model.dart';
@@ -10,19 +11,51 @@ class CheckpointService {
   // Get all checkpoints
   Future<Map<String, dynamic>> getCheckpoints() async {
     try {
+      if (kDebugMode) {
+        debugPrint('╔════════════════════════════════════════╗');
+        debugPrint('║     FETCHING CHECKPOINTS               ║');
+        debugPrint('╚════════════════════════════════════════╝');
+      }
+
       final token = await _storageService.getToken();
 
-      if (token == null) {
+      if (kDebugMode) {
+        debugPrint('🔐 Token check:');
+        debugPrint('   - Token exists: ${token != null}');
+        debugPrint('   - Token is empty: ${token?.isEmpty ?? true}');
+        if (token != null && token.isNotEmpty) {
+          debugPrint('   - Token length: ${token.length}');
+          debugPrint('   - Token preview: ${token.substring(0, min(50, token.length))}...');
+        }
+      }
+
+      if (token == null || token.isEmpty) {
+        if (kDebugMode) {
+          debugPrint('❌ No token found');
+        }
         return {
           'success': false,
-          'message': 'ไม่พบ Token',
+          'message': 'ไม่พบ Token กรุณาเข้าสู่ระบบอีกครั้ง',
         };
       }
 
+      final url = '${ApiConfig.baseUrl}/checkpoints/list.php';
+
+      if (kDebugMode) {
+        debugPrint('📍 URL: $url');
+        debugPrint('🔑 Token: ${token.substring(0, min(30, token.length))}...');
+      }
+
       final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/api/checkpoints/get_checkpoints.php'),
+        Uri.parse(url),
         headers: ApiConfig.getHeaders(token: token),
       ).timeout(ApiConfig.connectTimeout);
+
+      if (kDebugMode) {
+        debugPrint('📊 Status Code: ${response.statusCode}');
+        debugPrint('📋 Headers: ${response.headers}');
+        debugPrint('📄 Response: ${response.body.substring(0, min(500, response.body.length))}...');
+      }
 
       final data = jsonDecode(response.body);
 
@@ -40,23 +73,50 @@ class CheckpointService {
           statistics = CheckpointStatistics.fromJson(data['data']['statistics']);
         }
 
+        if (kDebugMode) {
+          debugPrint('✅ Successfully loaded ${checkpoints.length} checkpoints');
+          debugPrint('📊 Statistics:');
+          debugPrint('   Total: ${statistics?.total ?? 0}');
+          debugPrint('   Required: ${statistics?.required ?? 0}');
+          debugPrint('   Optional: ${statistics?.optional ?? 0}');
+        }
+
         return {
           'success': true,
           'message': data['message'],
           'checkpoints': checkpoints,
           'statistics': statistics,
         };
+      } else if (response.statusCode == 401) {
+        if (kDebugMode) {
+          debugPrint('❌ Unauthorized - Token may be expired');
+        }
+        return {
+          'success': false,
+          'message': 'Token หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง',
+          'token_expired': true,
+        };
       } else {
+        if (kDebugMode) {
+          debugPrint('❌ Failed with status: ${response.statusCode}');
+        }
         return {
           'success': false,
           'message': data['message'] ?? 'ดึงข้อมูลไม่สำเร็จ',
         };
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('❌ Exception in getCheckpoints: $e');
+        debugPrint('📍 StackTrace: $stackTrace');
+      }
       return {
         'success': false,
         'message': 'เกิดข้อผิดพลาด: ${e.toString()}',
       };
     }
   }
+
+  // Helper method
+  int min(int a, int b) => a < b ? a : b;
 }

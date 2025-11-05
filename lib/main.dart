@@ -1,3 +1,5 @@
+// lib/main.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +11,8 @@ import 'providers/session_provider.dart';
 import 'providers/nfc_provider.dart';
 import 'providers/camera_provider.dart';
 import 'providers/event_provider.dart';
+
+// ✅ แก้ไข import paths ให้ถูกต้อง
 import 'screens/auth/splash_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/home/home_screen.dart';
@@ -17,6 +21,9 @@ import 'screens/checkpoint/checkpoint_detail_screen.dart';
 import 'screens/checkpoint/checkpoint_scan_screen.dart';
 import 'screens/camera/camera_capture_screen.dart';
 import 'screens/event/event_note_screen.dart';
+import 'screens/history/history_screen.dart';
+import 'screens/settings/settings_screen.dart';
+
 import 'models/checkpoint_model.dart';
 import 'models/session_model.dart';
 import 'models/nfc_scan_result.dart';
@@ -73,6 +80,7 @@ class MyApp extends StatelessWidget {
             foregroundColor: Colors.white,
             systemOverlayStyle: SystemUiOverlayStyle.light,
           ),
+          // ✅ แก้ไข CardTheme เป็น CardThemeData
           cardTheme: CardThemeData(
             elevation: 2,
             shape: RoundedRectangleBorder(
@@ -155,6 +163,14 @@ class MyApp extends StatelessWidget {
                   scanResult: args['scan_result'] as NfcScanResult,
                   imagePath: args['image_path'] as String?,
                 ),
+              );
+            case '/history':
+              return MaterialPageRoute(
+                builder: (_) => const HistoryScreen(),
+              );
+            case '/settings':
+              return MaterialPageRoute(
+                builder: (_) => const SettingsScreen(),
               );
             default:
               return MaterialPageRoute(

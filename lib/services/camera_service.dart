@@ -1,12 +1,14 @@
-import 'dart:io';
+// lib/services/camera_service.dart
+
+import 'dart:io'; // ✅ เพิ่ม
+import 'dart:convert'; // ✅ เพิ่ม
 import 'package:camera/camera.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:image/image.dart' as img;
 import 'package:http/http.dart' as http;
-import 'dart:convert';
 
-import '../config/api_config.dart';
+import '../config/api_config.dart'; // ✅ เพิ่ม
 import 'storage_service.dart';
 
 class CameraService {
@@ -164,7 +166,7 @@ class CameraService {
 
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('${ApiConfig.baseUrl}/api/events/upload_image.php'),
+        Uri.parse(ApiConfig.uploadImageEndpoint), // ✅ แก้ใช้ ApiConfig
       );
 
       request.headers['Authorization'] = 'Bearer $token';

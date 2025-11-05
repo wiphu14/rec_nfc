@@ -1,9 +1,11 @@
+// lib/models/checkpoint_model.dart
+
 class CheckpointModel {
   final int id;
   final String checkpointCode;
   final String checkpointName;
-  final String? description;
-  final String? locationDetail;
+  final String description;
+  final String locationDetail;
   final int sequenceOrder;
   final bool isRequired;
   final bool requirePhoto;
@@ -15,8 +17,8 @@ class CheckpointModel {
     required this.id,
     required this.checkpointCode,
     required this.checkpointName,
-    this.description,
-    this.locationDetail,
+    required this.description,
+    required this.locationDetail,
     required this.sequenceOrder,
     required this.isRequired,
     required this.requirePhoto,
@@ -30,11 +32,11 @@ class CheckpointModel {
       id: json['id'] ?? 0,
       checkpointCode: json['checkpoint_code'] ?? '',
       checkpointName: json['checkpoint_name'] ?? '',
-      description: json['description'],
-      locationDetail: json['location_detail'],
+      description: json['description'] ?? '',
+      locationDetail: json['location_detail'] ?? '',
       sequenceOrder: json['sequence_order'] ?? 0,
-      isRequired: json['is_required'] ?? false,
-      requirePhoto: json['require_photo'] ?? true,
+      isRequired: json['is_required'] == 1 || json['is_required'] == true,
+      requirePhoto: json['require_photo'] == 1 || json['require_photo'] == true,
       status: json['status'] ?? 'active',
       nfcTagCount: json['nfc_tag_count'] ?? 0,
       nfcTags: json['nfc_tags'] != null 
@@ -77,5 +79,13 @@ class CheckpointStatistics {
       required: json['required'] ?? 0,
       optional: json['optional'] ?? 0,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'total': total,
+      'required': required,
+      'optional': optional,
+    };
   }
 }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
@@ -17,6 +18,10 @@ class SessionService {
       final token = await _getToken();
       if (token == null) return null;
 
+      if (kDebugMode) {
+        debugPrint('🔍 Fetching active session...');
+      }
+
       final response = await http.get(
         Uri.parse('${AppConfig.baseUrl}/sessions/active.php'),
         headers: {
@@ -26,6 +31,11 @@ class SessionService {
       ).timeout(
         Duration(milliseconds: AppConfig.connectionTimeout),
       );
+
+      if (kDebugMode) {
+        debugPrint('📊 Get Active Session Status: ${response.statusCode}');
+        debugPrint('📄 Response: ${response.body}');
+      }
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -37,6 +47,9 @@ class SessionService {
 
       return null;
     } catch (e) {
+      if (kDebugMode) {
+        debugPrint('❌ Error getting active session: $e');
+      }
       return null;
     }
   }
@@ -45,28 +58,71 @@ class SessionService {
   Future<SessionModel?> createSession() async {
     try {
       final token = await _getToken();
-      if (token == null) return null;
+      if (token == null) {
+        if (kDebugMode) {
+          debugPrint('❌ No token found');
+        }
+        return null;
+      }
 
+      if (kDebugMode) {
+        debugPrint('╔════════════════════════════════════════╗');
+        debugPrint('║      CREATING NEW SESSION              ║');
+        debugPrint('╚════════════════════════════════════════╝');
+        debugPrint('📍 URL: ${AppConfig.baseUrl}/sessions/create_session.php');
+        debugPrint('🔑 Token: ${token.substring(0, 20)}...');
+      }
+
+      // ✅ แก้ไข: ใช้ create_session.php แทน create.php
       final response = await http.post(
-        Uri.parse('${AppConfig.baseUrl}/sessions/create.php'),
+        Uri.parse('${AppConfig.baseUrl}/sessions/create_session.php'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
+        body: jsonEncode({}), // ส่ง empty JSON object
       ).timeout(
         Duration(milliseconds: AppConfig.connectionTimeout),
       );
 
+      if (kDebugMode) {
+        debugPrint('╔════════════════════════════════════════╗');
+        debugPrint('║      CREATE SESSION RESPONSE           ║');
+        debugPrint('╚════════════════════════════════════════╝');
+        debugPrint('📊 Status Code: ${response.statusCode}');
+        debugPrint('📋 Headers: ${response.headers}');
+        debugPrint('📄 Body: ${response.body}');
+      }
+
+      // Accept both 200 and 201 status codes
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(response.body);
 
-        if (data['success'] == true) {
+        if (data['success'] == true && data['data'] != null) {
+          if (kDebugMode) {
+            debugPrint('✅ Session created successfully!');
+            debugPrint('📦 Session Data: ${jsonEncode(data['data'])}');
+          }
+          
           return SessionModel.fromJson(data['data']);
+        } else {
+          if (kDebugMode) {
+            debugPrint('⚠️ API returned success=false');
+            debugPrint('💬 Message: ${data['message']}');
+          }
+        }
+      } else {
+        if (kDebugMode) {
+          debugPrint('❌ Unexpected status code: ${response.statusCode}');
         }
       }
 
       return null;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('❌ Error creating session: $e');
+        debugPrint('🔍 StackTrace: $stackTrace');
+      }
       return null;
     }
   }
@@ -76,6 +132,10 @@ class SessionService {
     try {
       final token = await _getToken();
       if (token == null) return false;
+
+      if (kDebugMode) {
+        debugPrint('🏁 Completing session: $sessionId');
+      }
 
       final response = await http.post(
         Uri.parse('${AppConfig.baseUrl}/sessions/complete.php'),
@@ -88,6 +148,11 @@ class SessionService {
         Duration(milliseconds: AppConfig.connectionTimeout),
       );
 
+      if (kDebugMode) {
+        debugPrint('📊 Complete Session Status: ${response.statusCode}');
+        debugPrint('📄 Response: ${response.body}');
+      }
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['success'] == true;
@@ -95,6 +160,9 @@ class SessionService {
 
       return false;
     } catch (e) {
+      if (kDebugMode) {
+        debugPrint('❌ Error completing session: $e');
+      }
       return false;
     }
   }
@@ -104,6 +172,10 @@ class SessionService {
     try {
       final token = await _getToken();
       if (token == null) return false;
+
+      if (kDebugMode) {
+        debugPrint('🚫 Cancelling session: $sessionId');
+      }
 
       final response = await http.post(
         Uri.parse('${AppConfig.baseUrl}/sessions/cancel.php'),
@@ -119,6 +191,11 @@ class SessionService {
         Duration(milliseconds: AppConfig.connectionTimeout),
       );
 
+      if (kDebugMode) {
+        debugPrint('📊 Cancel Session Status: ${response.statusCode}');
+        debugPrint('📄 Response: ${response.body}');
+      }
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['success'] == true;
@@ -126,6 +203,9 @@ class SessionService {
 
       return false;
     } catch (e) {
+      if (kDebugMode) {
+        debugPrint('❌ Error cancelling session: $e');
+      }
       return false;
     }
   }
@@ -139,6 +219,10 @@ class SessionService {
       final token = await _getToken();
       if (token == null) return [];
 
+      if (kDebugMode) {
+        debugPrint('📜 Fetching session history (page: $page, limit: $limit)');
+      }
+
       final response = await http.get(
         Uri.parse(
             '${AppConfig.baseUrl}/sessions/list.php?page=$page&limit=$limit'),
@@ -149,6 +233,10 @@ class SessionService {
       ).timeout(
         Duration(milliseconds: AppConfig.connectionTimeout),
       );
+
+      if (kDebugMode) {
+        debugPrint('📊 Get Sessions Status: ${response.statusCode}');
+      }
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -163,6 +251,9 @@ class SessionService {
 
       return [];
     } catch (e) {
+      if (kDebugMode) {
+        debugPrint('❌ Error getting sessions: $e');
+      }
       return [];
     }
   }

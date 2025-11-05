@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import '../services/camera_service.dart';
 
+
 class CameraProvider with ChangeNotifier {
   final CameraService _cameraService = CameraService();
 
