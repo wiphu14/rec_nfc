@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/checkpoint_model.dart';
 import '../services/checkpoint_service.dart';
-import 'package:flutter/foundation.dart';  // ← เพิ่มบรรทัดนี้
+import 'package:flutter/foundation.dart';
 
 class CheckpointProvider with ChangeNotifier {
   final CheckpointService _checkpointService = CheckpointService();
@@ -10,12 +10,14 @@ class CheckpointProvider with ChangeNotifier {
   CheckpointStatistics? _statistics;
   bool _isLoading = false;
   String? _errorMessage;
+  bool _tokenExpired = false;
 
   // Getters
   List<CheckpointModel> get checkpoints => _checkpoints;
   CheckpointStatistics? get statistics => _statistics;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+  bool get tokenExpired => _tokenExpired;
 
   // Get required checkpoints
   List<CheckpointModel> get requiredCheckpoints =>
@@ -35,6 +37,7 @@ class CheckpointProvider with ChangeNotifier {
 
     _isLoading = true;
     _errorMessage = null;
+    _tokenExpired = false;
     notifyListeners();
 
     try {
@@ -44,6 +47,7 @@ class CheckpointProvider with ChangeNotifier {
         debugPrint('📦 Service result:');
         debugPrint('   - Success: ${result['success']}');
         debugPrint('   - Message: ${result['message']}');
+        debugPrint('   - Token expired: ${result['token_expired']}');
         debugPrint('   - Has checkpoints: ${result['checkpoints'] != null}');
         if (result['checkpoints'] != null) {
           debugPrint('   - Checkpoints count: ${result['checkpoints'].length}');
@@ -54,6 +58,7 @@ class CheckpointProvider with ChangeNotifier {
         _checkpoints = result['checkpoints'] ?? [];
         _statistics = result['statistics'];
         _errorMessage = null;
+        _tokenExpired = false;
 
         if (kDebugMode) {
           debugPrint('✅ Successfully loaded ${_checkpoints.length} checkpoints');
@@ -68,9 +73,11 @@ class CheckpointProvider with ChangeNotifier {
         return true;
       } else {
         _errorMessage = result['message'];
+        _tokenExpired = result['token_expired'] == true;
 
         if (kDebugMode) {
           debugPrint('❌ Failed to load checkpoints: $_errorMessage');
+          debugPrint('   - Token expired: $_tokenExpired');
         }
         
         _isLoading = false;
@@ -108,6 +115,17 @@ class CheckpointProvider with ChangeNotifier {
   // Clear error
   void clearError() {
     _errorMessage = null;
+    _tokenExpired = false;
+    notifyListeners();
+  }
+
+  // Reset state
+  void reset() {
+    _checkpoints = [];
+    _statistics = null;
+    _isLoading = false;
+    _errorMessage = null;
+    _tokenExpired = false;
     notifyListeners();
   }
 }

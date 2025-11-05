@@ -16,6 +16,7 @@ class CheckpointListScreen extends StatefulWidget {
 
 class _CheckpointListScreenState extends State<CheckpointListScreen> {
   bool _isInitialized = false;
+  bool _isLoadingData = false;
 
   @override
   void initState() {
@@ -29,7 +30,7 @@ class _CheckpointListScreenState extends State<CheckpointListScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     
-    if (!_isInitialized) {
+    if (!_isInitialized && !_isLoadingData) {
       _isInitialized = true;
       
       // Run after frame is rendered
@@ -42,25 +43,43 @@ class _CheckpointListScreenState extends State<CheckpointListScreen> {
   Future<void> _checkAuthAndLoadData() async {
     if (!mounted) return;
 
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-
-    debugPrint('🔐 Checking auth status...');
-    debugPrint('   - isLoggedIn: ${authProvider.isLoggedIn}');
-    debugPrint('   - user: ${authProvider.user?.username ?? "null"}');
-    debugPrint('   - token: ${authProvider.token != null ? "exists" : "null"}');
-
-    // Check if user is still logged in
-    if (!authProvider.isLoggedIn) {
-      debugPrint('⚠️ User not logged in - redirecting to login');
-      
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, '/login');
-      }
+    // ป้องกันการโหลดซ้ำ
+    if (_isLoadingData) {
+      debugPrint('⚠️ Already loading data, skipping...');
       return;
     }
 
-    debugPrint('✅ User is logged in - loading data');
-    await _loadData();
+    setState(() {
+      _isLoadingData = true;
+    });
+
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+      debugPrint('🔐 Checking auth status...');
+      debugPrint('   - isLoggedIn: ${authProvider.isLoggedIn}');
+      debugPrint('   - user: ${authProvider.user?.username ?? "null"}');
+      debugPrint('   - token exists: ${authProvider.token != null}');
+
+      // Check if user is still logged in
+      if (!authProvider.isLoggedIn) {
+        debugPrint('⚠️ User not logged in - redirecting to login');
+        
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/login');
+        }
+        return;
+      }
+
+      debugPrint('✅ User is logged in - loading data');
+      await _loadData();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingData = false;
+        });
+      }
+    }
   }
 
   Future<void> _loadData() async {
@@ -79,9 +98,7 @@ class _CheckpointListScreenState extends State<CheckpointListScreen> {
     
     if (!checkpointSuccess && mounted) {
       // Check if token expired
-      if (checkpointProvider.errorMessage?.contains('Token') == true ||
-          checkpointProvider.errorMessage?.contains('token') == true ||
-          checkpointProvider.errorMessage?.contains('หมดอายุ') == true) {
+      if (checkpointProvider.tokenExpired) {
         debugPrint('⚠️ Token expired - logging out');
         
         await authProvider.logout();
@@ -91,6 +108,7 @@ class _CheckpointListScreenState extends State<CheckpointListScreen> {
             const SnackBar(
               content: Text('เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง'),
               backgroundColor: AppConfig.errorColor,
+              duration: Duration(seconds: 3),
             ),
           );
           
@@ -98,13 +116,28 @@ class _CheckpointListScreenState extends State<CheckpointListScreen> {
         }
         return;
       }
+
+      // แสดง error แต่ไม่ redirect
+      if (mounted && checkpointProvider.errorMessage != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(checkpointProvider.errorMessage!),
+            backgroundColor: AppConfig.errorColor,
+            action: SnackBarAction(
+              label: 'ลองอีกครั้ง',
+              textColor: Colors.white,
+              onPressed: _loadData,
+            ),
+          ),
+        );
+      }
     }
 
-    // Load session
+    // Load session (don't redirect on failure)
     await sessionProvider.loadActiveSession();
 
     if (mounted) {
-      debugPrint('✅ Data loaded successfully');
+      debugPrint('✅ Data loading completed');
     }
   }
 
@@ -254,17 +287,17 @@ class _CheckpointListScreenState extends State<CheckpointListScreen> {
         onRefresh: _loadData,
         child: Consumer3<AuthProvider, CheckpointProvider, SessionProvider>(
           builder: (context, authProvider, checkpointProvider, sessionProvider, child) {
-            // Show loading while initializing
-            if (!_isInitialized) {
+            // Show loading while initializing or loading data
+            if (!_isInitialized || _isLoadingData) {
               return const Center(child: LoadingWidget());
             }
 
             // Check if still loading
-            if (checkpointProvider.isLoading || sessionProvider.isLoading) {
+            if (checkpointProvider.isLoading) {
               return const Center(child: LoadingWidget());
             }
 
-            // Show error if any
+            // Show error if any (without redirecting)
             if (checkpointProvider.errorMessage != null) {
               return Center(
                 child: Column(
