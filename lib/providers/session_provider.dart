@@ -1,181 +1,181 @@
 import 'package:flutter/foundation.dart';
 import '../services/session_service.dart';
-import '../models/session_model.dart';
 
 class SessionProvider with ChangeNotifier {
-  final SessionService _sessionService = SessionService();
-
-  SessionModel? _activeSession;
-  List<SessionModel> _sessions = [];
+  Map<String, dynamic>? _activeSession;
+  List<Map<String, dynamic>> _sessionHistory = [];
   bool _isLoading = false;
   String? _errorMessage;
 
   // Getters
-  SessionModel? get activeSession => _activeSession;
-  SessionModel? get currentSession => _activeSession; // Alias
-  List<SessionModel> get sessions => _sessions;
+  Map<String, dynamic>? get activeSession => _activeSession;
+  List<Map<String, dynamic>> get sessionHistory => _sessionHistory;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
-  bool get hasActiveSession => _activeSession != null;
 
-  /// Load active session
+  /// โหลด active session
   Future<void> loadActiveSession() async {
     try {
       _isLoading = true;
-      notifyListeners();
-
-      final session = await _sessionService.getActiveSession();
-
-      _activeSession = session;
-      _isLoading = false;
-      _errorMessage = null;
-      notifyListeners();
-    } catch (e) {
-      _errorMessage = e.toString();
-      _isLoading = false;
-      notifyListeners();
-
-      if (kDebugMode) {
-        debugPrint('Error loading active session: $e');
-      }
-    }
-  }
-
-  /// Create new session
-  Future<bool> createSession() async {
-    try {
-      _isLoading = true;
       _errorMessage = null;
       notifyListeners();
 
-      final session = await _sessionService.createSession();
+      final result = await SessionService.getActiveSession();
 
-      if (session != null) {
-        _activeSession = session;
-        _isLoading = false;
-        notifyListeners();
-        return true;
+      if (result['success'] && result['session'] != null) {
+        _activeSession = result['session'];
+        
+        if (kDebugMode) {
+          print('✅ Active session loaded: ${_activeSession?['id']}');
+        }
       } else {
-        _errorMessage = 'ไม่สามารถสร้างรอบการตรวจได้';
-        _isLoading = false;
-        notifyListeners();
-        return false;
-      }
-    } catch (e) {
-      _errorMessage = e.toString();
-      _isLoading = false;
-      notifyListeners();
-
-      if (kDebugMode) {
-        debugPrint('Error creating session: $e');
-      }
-      return false;
-    }
-  }
-
-  /// Start new session (alias for createSession)
-  Future<bool> startSession() async {
-    return await createSession();
-  }
-
-  /// Complete session
-  Future<bool> completeSession() async {
-    if (_activeSession == null) return false;
-
-    try {
-      _isLoading = true;
-      notifyListeners();
-
-      final success = await _sessionService.completeSession(_activeSession!.id);
-
-      if (success) {
         _activeSession = null;
-        _isLoading = false;
-        notifyListeners();
-        return true;
-      } else {
-        _errorMessage = 'ไม่สามารถสิ้นสุดรอบการตรวจได้';
-        _isLoading = false;
-        notifyListeners();
-        return false;
+        
+        if (kDebugMode) {
+          print('ℹ️ No active session');
+        }
       }
-    } catch (e) {
-      _errorMessage = e.toString();
+
       _isLoading = false;
       notifyListeners();
-
+    } catch (e) {
+      _errorMessage = 'ไม่สามารถโหลด session ได้: $e';
+      _isLoading = false;
+      
       if (kDebugMode) {
-        debugPrint('Error completing session: $e');
+        print('❌ Error loading active session: $e');
       }
-      return false;
+      
+      notifyListeners();
     }
   }
 
-  /// Cancel session
-  Future<bool> cancelSession({String? reason}) async {
-    if (_activeSession == null) return false;
-
+  /// ✅ เพิ่ม: โหลดประวัติ session
+  Future<void> loadSessionHistory(String token) async {
     try {
       _isLoading = true;
-      notifyListeners();
-
-      final success =
-          await _sessionService.cancelSession(_activeSession!.id, reason);
-
-      if (success) {
-        _activeSession = null;
-        _isLoading = false;
-        notifyListeners();
-        return true;
-      } else {
-        _errorMessage = 'ไม่สามารถยกเลิกรอบการตรวจได้';
-        _isLoading = false;
-        notifyListeners();
-        return false;
-      }
-    } catch (e) {
-      _errorMessage = e.toString();
-      _isLoading = false;
-      notifyListeners();
-
-      if (kDebugMode) {
-        debugPrint('Error cancelling session: $e');
-      }
-      return false;
-    }
-  }
-
-  /// Load all sessions (for history)
-  Future<void> loadSessions({int page = 1, int limit = 20}) async {
-    try {
-      _isLoading = true;
-      notifyListeners();
-
-      final sessions =
-          await _sessionService.getAllSessions(page: page, limit: limit);
-
-      _sessions = sessions;
-      _isLoading = false;
       _errorMessage = null;
       notifyListeners();
-    } catch (e) {
-      _errorMessage = e.toString();
+
+      final result = await SessionService.getSessionHistory(token);
+
+      if (result['success']) {
+        _sessionHistory = List<Map<String, dynamic>>.from(
+          result['sessions'] ?? []
+        );
+        
+        if (kDebugMode) {
+          print('✅ Session history loaded: ${_sessionHistory.length} sessions');
+        }
+      } else {
+        _errorMessage = result['message'] ?? 'ไม่สามารถโหลดประวัติได้';
+        _sessionHistory = [];
+      }
+
       _isLoading = false;
       notifyListeners();
-
+    } catch (e) {
+      _errorMessage = 'เกิดข้อผิดพลาด: $e';
+      _sessionHistory = [];
+      _isLoading = false;
+      
       if (kDebugMode) {
-        debugPrint('Error loading sessions: $e');
+        print('❌ Error loading session history: $e');
       }
+      
+      notifyListeners();
     }
   }
 
-  /// Check if checkpoint is completed in current session
-  bool isCheckpointCompleted(int checkpointId) {
-    if (_activeSession == null) return false;
-    return _activeSession!.isCheckpointCompleted(checkpointId);
+  /// สร้าง session ใหม่
+  Future<Map<String, dynamic>> createSession(String token) async {
+    try {
+      _isLoading = true;
+      _errorMessage = null;
+      notifyListeners();
+
+      final result = await SessionService.createSession(token);
+
+      if (result['success'] && result['session'] != null) {
+        _activeSession = result['session'];
+        
+        if (kDebugMode) {
+          print('✅ Session created: ${_activeSession?['id']}');
+        }
+      }
+
+      _isLoading = false;
+      notifyListeners();
+
+      return result;
+    } catch (e) {
+      _errorMessage = 'ไม่สามารถสร้าง session ได้: $e';
+      _isLoading = false;
+      
+      if (kDebugMode) {
+        print('❌ Error creating session: $e');
+      }
+      
+      notifyListeners();
+
+      return {
+        'success': false,
+        'message': 'เกิดข้อผิดพลาด: $e',
+      };
+    }
   }
 
-  /// Clear error
+  /// จบ session
+  Future<Map<String, dynamic>> completeSession(
+    String token,
+    int sessionId,
+  ) async {
+    try {
+      _isLoading = true;
+      _errorMessage = null;
+      notifyListeners();
+
+      final result = await SessionService.completeSession(token, sessionId);
+
+      if (result['success']) {
+        _activeSession = null;
+        
+        if (kDebugMode) {
+          print('✅ Session completed: $sessionId');
+        }
+      }
+
+      _isLoading = false;
+      notifyListeners();
+
+      return result;
+    } catch (e) {
+      _errorMessage = 'ไม่สามารถจบ session ได้: $e';
+      _isLoading = false;
+      
+      if (kDebugMode) {
+        print('❌ Error completing session: $e');
+      }
+      
+      notifyListeners();
+
+      return {
+        'success': false,
+        'message': 'เกิดข้อผิดพลาด: $e',
+      };
+    }
+  }
+
+  /// รีเซ็ต
+  void reset() {
+    _activeSession = null;
+    _sessionHistory = [];
+    _errorMessage = null;
+    _isLoading = false;
+    notifyListeners();
+  }
+
+  /// ล้าง error
   void clearError() {
     _errorMessage = null;
     notifyListeners();

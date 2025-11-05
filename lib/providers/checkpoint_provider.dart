@@ -1,131 +1,113 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../models/checkpoint_model.dart';
 import '../services/checkpoint_service.dart';
-import 'package:flutter/foundation.dart';
 
 class CheckpointProvider with ChangeNotifier {
-  final CheckpointService _checkpointService = CheckpointService();
-
   List<CheckpointModel> _checkpoints = [];
-  CheckpointStatistics? _statistics;
   bool _isLoading = false;
   String? _errorMessage;
-  bool _tokenExpired = false;
+  Map<String, dynamic>? _statistics;
 
-  // Getters
   List<CheckpointModel> get checkpoints => _checkpoints;
-  CheckpointStatistics? get statistics => _statistics;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
-  bool get tokenExpired => _tokenExpired;
+  Map<String, dynamic>? get statistics => _statistics;
 
-  // Get required checkpoints
-  List<CheckpointModel> get requiredCheckpoints =>
-      _checkpoints.where((c) => c.isRequired).toList();
-
-  // Get optional checkpoints
-  List<CheckpointModel> get optionalCheckpoints =>
-      _checkpoints.where((c) => !c.isRequired).toList();
-
-  // Load checkpoints
-  Future<bool> loadCheckpoints() async {
+  /// โหลดรายการจุดตรวจทั้งหมด
+  Future<void> loadCheckpoints(String token) async {
     if (kDebugMode) {
-      debugPrint('╔════════════════════════════════════════╗');
-      debugPrint('║   CHECKPOINT PROVIDER - LOADING        ║');
-      debugPrint('╚════════════════════════════════════════╝');
+      print('╔════════════════════════════════════════╗');
+      print('║   CHECKPOINT PROVIDER - LOADING        ║');
+      print('╚════════════════════════════════════════╝');
     }
 
     _isLoading = true;
     _errorMessage = null;
-    _tokenExpired = false;
     notifyListeners();
 
     try {
-      final result = await _checkpointService.getCheckpoints();
+      // ✅ เรียก static method ด้วย class name และส่ง token
+      final result = await CheckpointService.getCheckpoints(token);
 
       if (kDebugMode) {
-        debugPrint('📦 Service result:');
-        debugPrint('   - Success: ${result['success']}');
-        debugPrint('   - Message: ${result['message']}');
-        debugPrint('   - Token expired: ${result['token_expired']}');
-        debugPrint('   - Has checkpoints: ${result['checkpoints'] != null}');
-        if (result['checkpoints'] != null) {
-          debugPrint('   - Checkpoints count: ${result['checkpoints'].length}');
-        }
+        print('📦 Service result:');
+        print('   - Success: ${result['success']}');
+        print('   - Message: ${result['message']}');
+        print('   - Token expired: ${result['token_expired']}');
+        print('   - Has checkpoints: ${result['checkpoints'] != null}');
       }
 
       if (result['success']) {
-        _checkpoints = result['checkpoints'] ?? [];
+        // แปลง JSON เป็น CheckpointModel
+        final List<dynamic> checkpointsJson = result['checkpoints'] ?? [];
+        _checkpoints = checkpointsJson
+            .map((json) => CheckpointModel.fromJson(json))
+            .toList();
+        
         _statistics = result['statistics'];
         _errorMessage = null;
-        _tokenExpired = false;
 
         if (kDebugMode) {
-          debugPrint('✅ Successfully loaded ${_checkpoints.length} checkpoints');
-          debugPrint('📊 Statistics:');
-          debugPrint('   - Total: ${_statistics?.total ?? 0}');
-          debugPrint('   - Required: ${_statistics?.required ?? 0}');
-          debugPrint('   - Optional: ${_statistics?.optional ?? 0}');
+          print('✅ Loaded ${_checkpoints.length} checkpoints');
         }
-        
-        _isLoading = false;
-        notifyListeners();
-        return true;
       } else {
-        _errorMessage = result['message'];
-        _tokenExpired = result['token_expired'] == true;
+        _errorMessage = result['message'] ?? 'ไม่สามารถโหลดข้อมูลได้';
+        _checkpoints = [];
+        _statistics = null;
 
         if (kDebugMode) {
-          debugPrint('❌ Failed to load checkpoints: $_errorMessage');
-          debugPrint('   - Token expired: $_tokenExpired');
+          print('❌ Failed to load checkpoints: $_errorMessage');
         }
-        
-        _isLoading = false;
-        notifyListeners();
-        return false;
       }
-    } catch (e, stackTrace) {
-      _errorMessage = 'เกิดข้อผิดพลาด: ${e.toString()}';
+
+    } catch (e) {
+      _errorMessage = 'เกิดข้อผิดพลาด: $e';
+      _checkpoints = [];
+      _statistics = null;
 
       if (kDebugMode) {
-        debugPrint('❌ Exception in loadCheckpoints: $e');
-        debugPrint('📍 StackTrace: $stackTrace');
+        print('❌ Exception in loadCheckpoints: $e');
       }
-      
+    } finally {
       _isLoading = false;
       notifyListeners();
-      return false;
     }
   }
 
-  // Get checkpoint by ID
-  CheckpointModel? getCheckpointById(int id) {
+  /// รีเซ็ตข้อมูล
+  void reset() {
+    _checkpoints = [];
+    _statistics = null;
+    _errorMessage = null;
+    _isLoading = false;
+    notifyListeners();
+  }
+
+  /// ค้นหาจุดตรวจตาม ID
+  CheckpointModel? findCheckpointById(int id) {
     try {
-      return _checkpoints.firstWhere((c) => c.id == id);
+      return _checkpoints.firstWhere((checkpoint) => checkpoint.id == id);
     } catch (e) {
       return null;
     }
   }
 
-  // Check if checkpoint is completed in session
-  bool isCheckpointCompleted(int checkpointId, List<int> completedIds) {
-    return completedIds.contains(checkpointId);
+  /// กรองจุดตรวจที่บังคับ
+  List<CheckpointModel> get requiredCheckpoints {
+    return _checkpoints.where((c) => c.isRequired).toList();
   }
 
-  // Clear error
-  void clearError() {
-    _errorMessage = null;
-    _tokenExpired = false;
-    notifyListeners();
+  /// กรองจุดตรวจที่ไม่บังคับ
+  List<CheckpointModel> get optionalCheckpoints {
+    return _checkpoints.where((c) => !c.isRequired).toList();
   }
 
-  // Reset state
-  void reset() {
-    _checkpoints = [];
-    _statistics = null;
-    _isLoading = false;
-    _errorMessage = null;
-    _tokenExpired = false;
-    notifyListeners();
-  }
+  /// จำนวนจุดตรวจทั้งหมด
+  int get totalCheckpoints => _checkpoints.length;
+
+  /// จำนวนจุดตรวจที่บังคับ
+  int get requiredCount => _statistics?['required'] ?? 0;
+
+  /// จำนวนจุดตรวจที่ไม่บังคับ
+  int get optionalCount => _statistics?['optional'] ?? 0;
 }

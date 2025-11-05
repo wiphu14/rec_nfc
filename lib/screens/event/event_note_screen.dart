@@ -1,29 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:fluttertoast/fluttertoast.dart';
-import '../../config/app_config.dart';
-import '../../models/checkpoint_model.dart';
-import '../../models/session_model.dart';
-import '../../models/nfc_scan_result.dart';
-import '../../providers/event_provider.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/session_provider.dart';
-import '../../providers/camera_provider.dart';
-import '../../widgets/loading_widget.dart';
 
 class EventNoteScreen extends StatefulWidget {
-  final CheckpointModel checkpoint;
-  final SessionModel session;
-  final NfcScanResult scanResult;
-  final String? imagePath;
-
-  const EventNoteScreen({
-    super.key,
-    required this.checkpoint,
-    required this.session,
-    required this.scanResult,
-    this.imagePath,
-  });
+  const EventNoteScreen({super.key});
 
   @override
   State<EventNoteScreen> createState() => _EventNoteScreenState();
@@ -31,8 +13,8 @@ class EventNoteScreen extends StatefulWidget {
 
 class _EventNoteScreenState extends State<EventNoteScreen> {
   final _noteController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
-  bool _isCompressing = false;
+  File? _capturedImage;
+  bool _isSubmitting = false;
 
   @override
   void dispose() {
@@ -40,243 +22,85 @@ class _EventNoteScreenState extends State<EventNoteScreen> {
     super.dispose();
   }
 
-  Future<void> _saveEvent() async {
-    if (!_formKey.currentState!.validate()) {
+  Future<void> _takePicture() async {
+    // เปิดกล้องและรับรูปกลับมา
+    await Navigator.pushNamed(
+      context,
+      '/camera-capture',
+      arguments: {
+        'onImageCaptured': (File imageFile) {
+          if (mounted) {
+            setState(() {
+              _capturedImage = imageFile;
+            });
+          }
+        },
+      },
+    );
+  }
+
+  Future<void> _submitNote() async {
+    if (_noteController.text.trim().isEmpty && _capturedImage == null) {
+      _showErrorDialog('กรุณากรอกข้อมูล', 'กรุณาเขียนบันทึกหรือถ่ายรูป');
       return;
     }
 
     if (!mounted) return;
 
-    final eventProvider = Provider.of<EventProvider>(context, listen: false);
-    final cameraProvider = Provider.of<CameraProvider>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final sessionProvider = Provider.of<SessionProvider>(context, listen: false);
 
-    File? imageFile;
-
-    // Compress image if exists
-    if (widget.imagePath != null) {
-      setState(() {
-        _isCompressing = true;
-      });
-
-      try {
-        imageFile = await cameraProvider.compressImage(
-          widget.imagePath!,
-          quality: 85,
-        );
-      } catch (e) {
-        if (mounted) {
-          Fluttertoast.showToast(
-            msg: "ไม่สามารถประมวลผลรูปภาพได้",
-            backgroundColor: AppConfig.errorColor,
-          );
-        }
-      }
-
-      if (mounted) {
-        setState(() {
-          _isCompressing = false;
-        });
-      }
+    // ตรวจสอบว่ามี active session
+    if (sessionProvider.activeSession == null) {
+      _showErrorDialog('ไม่มี Session', 'กรุณาเริ่ม Session ก่อน');
+      return;
     }
 
-    if (!mounted) return;
+    setState(() {
+      _isSubmitting = true;
+    });
 
-    // Create event - Use nfcTagId from scanResult.uid
-    // Note: You may need to verify the tag UID with backend first
-    // For now, we'll use a placeholder ID
-    final success = await eventProvider.createEventWithImage(
-      sessionId: widget.session.id,
-      checkpointId: widget.checkpoint.id,
-      nfcTagId: 1, // This should be retrieved from backend after verifying scanResult.uid
-      eventNote: _noteController.text.trim().isEmpty
-          ? null
-          : _noteController.text.trim(),
-      imageFile: imageFile,
-    );
-
-    if (!mounted) return;
-
-    if (success) {
-      // Reload session
-      final sessionProvider = Provider.of<SessionProvider>(
-        context,
-        listen: false,
-      );
-      await sessionProvider.loadActiveSession();
+    try {
+      // TODO: เรียก API บันทึกหมายเหตุ
+      await Future.delayed(const Duration(seconds: 1)); // Simulate API call
 
       if (!mounted) return;
 
-      final eventData = eventProvider.lastCreatedEvent!;
-      final isAllCompleted = eventData['is_all_completed'] ?? false;
+      setState(() {
+        _isSubmitting = false;
+      });
 
-      if (isAllCompleted) {
-        _showCompletionDialog();
-      } else {
-        _showSuccessDialog();
-      }
-    } else {
-      Fluttertoast.showToast(
-        msg: eventProvider.errorMessage ?? 'บันทึกเหตุการณ์ไม่สำเร็จ',
-        backgroundColor: AppConfig.errorColor,
-        toastLength: Toast.LENGTH_LONG,
+      // แสดงข้อความสำเร็จ
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ บันทึกหมายเหตุสำเร็จ'),
+          backgroundColor: Colors.green,
+        ),
       );
+
+      // กลับไปหน้าก่อนหน้า
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _isSubmitting = false;
+      });
+
+      _showErrorDialog('เกิดข้อผิดพลาด', e.toString());
     }
   }
 
-  void _showSuccessDialog() {
-    if (!mounted) return;
-
+  void _showErrorDialog(String title, String message) {
     showDialog(
       context: context,
-      barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.check_circle, color: AppConfig.successColor, size: 32),
-            SizedBox(width: 12),
-            Text('บันทึกสำเร็จ'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('บันทึกเหตุการณ์เรียบร้อยแล้ว'),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppConfig.primaryColor.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppConfig.primaryColor),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('ตรวจแล้ว:'),
-                      Text(
-                        '${Provider.of<EventProvider>(context, listen: false).lastCreatedEvent!['completed_checkpoints']} จุด',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: AppConfig.primaryColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('ความคืบหน้า:'),
-                      Text(
-                        '${Provider.of<EventProvider>(context, listen: false).lastCreatedEvent!['progress_percentage'].toStringAsFixed(1)}%',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: AppConfig.primaryColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context); // Close dialog
-              Navigator.popUntil(context, (route) => route.isFirst);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppConfig.primaryColor,
-            ),
-            child: const Text('ตรวจจุดต่อไป'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showCompletionDialog() {
-    if (!mounted) return;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        title: const Column(
-          children: [
-            Icon(
-              Icons.celebration,
-              color: AppConfig.successColor,
-              size: 64,
-            ),
-            SizedBox(height: 16),
-            Text(
-              'ตรวจครบทุกจุดแล้ว!',
-              style: TextStyle(
-                color: AppConfig.successColor,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'คุณได้ตรวจครบทุกจุดตรวจในรอบนี้แล้ว',
-              textAlign: TextAlign.center,
-            ),
-            SizedBox(height: 8),
-            Text(
-              'ต้องการสิ้นสุดรอบการตรวจหรือไม่?',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
+        title: Text(title),
+        content: Text(message),
         actions: [
           TextButton(
-            onPressed: () {
-              Navigator.pop(dialogContext);
-              if (mounted) {
-                Navigator.popUntil(context, (route) => route.isFirst);
-              }
-            },
-            child: const Text('ตรวจต่อ'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(dialogContext);
-
-              if (mounted) {
-                final sessionProvider = Provider.of<SessionProvider>(
-                  context,
-                  listen: false,
-                );
-
-                final success = await sessionProvider.completeSession();
-
-                if (mounted) {
-                  if (success) {
-                    Fluttertoast.showToast(
-                      msg: "สิ้นสุดรอบการตรวจสำเร็จ",
-                      backgroundColor: AppConfig.successColor,
-                    );
-                  }
-
-                  Navigator.popUntil(context, (route) => route.isFirst);
-                }
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppConfig.successColor,
-            ),
-            child: const Text('สิ้นสุดรอบการตรวจ'),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('ตกลง'),
           ),
         ],
       ),
@@ -287,277 +111,169 @@ class _EventNoteScreenState extends State<EventNoteScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('บันทึกเหตุการณ์'),
-        backgroundColor: AppConfig.primaryColor,
+        title: const Text('บันทึกหมายเหตุ'),
+        backgroundColor: Colors.blue,
       ),
-      body: Consumer<EventProvider>(
-        builder: (context, eventProvider, child) {
-          if (eventProvider.isCreating || _isCompressing) {
-            return LoadingOverlay(
-              message: _isCompressing
-                  ? 'กำลังประมวลผลรูปภาพ...'
-                  : 'กำลังบันทึกเหตุการณ์...',
-            );
-          }
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ข้อมูล Session
+            Consumer<SessionProvider>(
+              builder: (context, sessionProvider, child) {
+                final activeSession = sessionProvider.activeSession;
 
-          return SingleChildScrollView(
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _buildCheckpointInfo(),
-                  _buildScanInfo(),
-                  if (widget.imagePath != null) _buildImagePreview(),
-                  _buildNoteInput(),
-                  _buildSaveButton(),
-                ],
+                if (activeSession == null) {
+                  return Card(
+                    color: Colors.orange[50],
+                    child: const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Icon(Icons.warning, color: Colors.orange),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'ยังไม่มี Session ที่ Active',
+                              style: TextStyle(color: Colors.orange),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                return Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Session ปัจจุบัน',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Divider(),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Session ID:'),
+                            Text(
+                              '#${activeSession['id']?.toString() ?? 'N/A'}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+
+            const SizedBox(height: 20),
+
+            // หมายเหตุ
+            const Text(
+              'หมายเหตุ',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
               ),
             ),
-          );
-        },
-      ),
-    );
-  }
+            const SizedBox(height: 10),
 
-  Widget _buildCheckpointInfo() {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppConfig.primaryColor,
-            AppConfig.secondaryColor,
+            TextField(
+              controller: _noteController,
+              maxLines: 6,
+              decoration: InputDecoration(
+                hintText: 'พิมพ์หมายเหตุที่นี่...',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // รูปภาพ
+            const Text(
+              'รูปภาพ (ถ้ามี)',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            GestureDetector(
+              onTap: _takePicture,
+              child: Container(
+                height: 200,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey),
+                  borderRadius: BorderRadius.circular(8),
+                  color: Colors.grey[200],
+                ),
+                child: _capturedImage == null
+                    ? const Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.camera_alt, size: 50, color: Colors.grey),
+                          SizedBox(height: 10),
+                          Text('แตะเพื่อถ่ายรูป'),
+                        ],
+                      )
+                    : ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(
+                          _capturedImage!,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+              ),
+            ),
+
+            if (_capturedImage != null)
+              TextButton.icon(
+                onPressed: () => setState(() => _capturedImage = null),
+                icon: const Icon(Icons.delete, color: Colors.red),
+                label: const Text(
+                  'ลบรูป',
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+
+            const SizedBox(height: 30),
+
+            // ปุ่มบันทึก
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isSubmitting ? null : _submitNote,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                child: _isSubmitting
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text(
+                        'บันทึก',
+                        style: TextStyle(fontSize: 18),
+                      ),
+              ),
+            ),
           ],
         ),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  'จุดที่ ${widget.checkpoint.sequenceOrder}',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: AppConfig.primaryColor,
-                  ),
-                ),
-              ),
-              const Spacer(),
-              const Icon(
-                Icons.check_circle,
-                color: Colors.white,
-                size: 28,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            widget.checkpoint.checkpointName,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            widget.checkpoint.checkpointCode,
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.white70,
-            ),
-          ),
-        ],
       ),
     );
-  }
-
-  Widget _buildScanInfo() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppConfig.successColor.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppConfig.successColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(
-                Icons.nfc,
-                color: AppConfig.successColor,
-                size: 20,
-              ),
-              SizedBox(width: 8),
-              Text(
-                'สแกน NFC สำเร็จ',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: AppConfig.successColor,
-                ),
-              ),
-            ],
-          ),
-          const Divider(height: 16),
-          _buildInfoRow('Tag UID', widget.scanResult.uid),
-          _buildInfoRow('เวลาสแกน', _formatDateTime(widget.scanResult.scanTime)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              '$label:',
-              style: const TextStyle(
-                fontSize: 14,
-                color: Colors.grey,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildImagePreview() {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.photo_camera, color: AppConfig.primaryColor),
-              SizedBox(width: 8),
-              Text(
-                'รูปภาพประกอบ',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Image.file(
-              File(widget.imagePath!),
-              fit: BoxFit.cover,
-              width: double.infinity,
-              height: 250,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNoteInput() {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.notes, color: AppConfig.primaryColor),
-              SizedBox(width: 8),
-              Text(
-                'หมายเหตุ',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              SizedBox(width: 4),
-              Text(
-                '(ไม่บังคับ)',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _noteController,
-            decoration: InputDecoration(
-              hintText: 'กรอกหมายเหตุเพิ่มเติม...',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              filled: true,
-              fillColor: Colors.grey[50],
-            ),
-            maxLines: 4,
-            maxLength: 500,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSaveButton() {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      child: ElevatedButton.icon(
-        onPressed: _saveEvent,
-        icon: const Icon(Icons.save),
-        label: const Text('บันทึกเหตุการณ์'),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppConfig.primaryColor,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _formatDateTime(String dateTime) {
-    try {
-      final dt = DateTime.parse(dateTime);
-      return '${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} น.';
-    } catch (e) {
-      return dateTime;
-    }
   }
 }

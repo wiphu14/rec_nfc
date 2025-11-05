@@ -1,260 +1,203 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
 import '../config/app_config.dart';
-import '../models/session_model.dart';
 
 class SessionService {
-  /// Get auth token from SharedPreferences
-  Future<String?> _getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('auth_token');
-  }
+  static final String baseUrl = AppConfig.baseUrl;
 
-  /// Get active session
-  Future<SessionModel?> getActiveSession() async {
+  /// ดึง active session
+  static Future<Map<String, dynamic>> getActiveSession() async {
     try {
-      final token = await _getToken();
-      if (token == null) return null;
-
       if (kDebugMode) {
-        debugPrint('🔍 Fetching active session...');
+        print('╔════════════════════════════════════════╗');
+        print('║     FETCHING ACTIVE SESSION            ║');
+        print('╚════════════════════════════════════════╝');
       }
 
       final response = await http.get(
-        Uri.parse('${AppConfig.baseUrl}/sessions/active.php'),
+        Uri.parse('$baseUrl/sessions/active.php'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
         },
-      ).timeout(
-        Duration(milliseconds: AppConfig.connectionTimeout),
-      );
+      ).timeout(const Duration(seconds: 30));
 
       if (kDebugMode) {
-        debugPrint('📊 Get Active Session Status: ${response.statusCode}');
-        debugPrint('📄 Response: ${response.body}');
+        print('📊 Status Code: ${response.statusCode}');
+        print('📄 Response: ${response.body}');
       }
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-
-        if (data['success'] == true && data['data'] != null) {
-          return SessionModel.fromJson(data['data']);
-        }
-      }
-
-      return null;
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('❌ Error getting active session: $e');
-      }
-      return null;
-    }
-  }
-
-  /// Create new session
-  Future<SessionModel?> createSession() async {
-    try {
-      final token = await _getToken();
-      if (token == null) {
-        if (kDebugMode) {
-          debugPrint('❌ No token found');
-        }
-        return null;
-      }
-
-      if (kDebugMode) {
-        debugPrint('╔════════════════════════════════════════╗');
-        debugPrint('║      CREATING NEW SESSION              ║');
-        debugPrint('╚════════════════════════════════════════╝');
-        debugPrint('📍 URL: ${AppConfig.baseUrl}/sessions/create_session.php');
-        debugPrint('🔑 Token: ${token.substring(0, 20)}...');
-      }
-
-      // ✅ แก้ไข: ใช้ create_session.php แทน create.php
-      final response = await http.post(
-        Uri.parse('${AppConfig.baseUrl}/sessions/create_session.php'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({}), // ส่ง empty JSON object
-      ).timeout(
-        Duration(milliseconds: AppConfig.connectionTimeout),
-      );
-
-      if (kDebugMode) {
-        debugPrint('╔════════════════════════════════════════╗');
-        debugPrint('║      CREATE SESSION RESPONSE           ║');
-        debugPrint('╚════════════════════════════════════════╝');
-        debugPrint('📊 Status Code: ${response.statusCode}');
-        debugPrint('📋 Headers: ${response.headers}');
-        debugPrint('📄 Body: ${response.body}');
-      }
-
-      // Accept both 200 and 201 status codes
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        final data = jsonDecode(response.body);
-
-        if (data['success'] == true && data['data'] != null) {
-          if (kDebugMode) {
-            debugPrint('✅ Session created successfully!');
-            debugPrint('📦 Session Data: ${jsonEncode(data['data'])}');
-          }
-          
-          return SessionModel.fromJson(data['data']);
-        } else {
-          if (kDebugMode) {
-            debugPrint('⚠️ API returned success=false');
-            debugPrint('💬 Message: ${data['message']}');
-          }
-        }
+        final data = json.decode(response.body);
+        return {
+          'success': data['success'] ?? false,
+          'session': data['data']?['session'],
+        };
       } else {
-        if (kDebugMode) {
-          debugPrint('❌ Unexpected status code: ${response.statusCode}');
-        }
+        return {
+          'success': false,
+          'message': 'ไม่สามารถดึงข้อมูล session ได้',
+        };
       }
-
-      return null;
-    } catch (e, stackTrace) {
-      if (kDebugMode) {
-        debugPrint('❌ Error creating session: $e');
-        debugPrint('🔍 StackTrace: $stackTrace');
-      }
-      return null;
-    }
-  }
-
-  /// Complete session
-  Future<bool> completeSession(int sessionId) async {
-    try {
-      final token = await _getToken();
-      if (token == null) return false;
-
-      if (kDebugMode) {
-        debugPrint('🏁 Completing session: $sessionId');
-      }
-
-      final response = await http.post(
-        Uri.parse('${AppConfig.baseUrl}/sessions/complete.php'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({'session_id': sessionId}),
-      ).timeout(
-        Duration(milliseconds: AppConfig.connectionTimeout),
-      );
-
-      if (kDebugMode) {
-        debugPrint('📊 Complete Session Status: ${response.statusCode}');
-        debugPrint('📄 Response: ${response.body}');
-      }
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['success'] == true;
-      }
-
-      return false;
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('❌ Error completing session: $e');
+        print('❌ Exception in getActiveSession: $e');
       }
-      return false;
+      return {
+        'success': false,
+        'message': 'เกิดข้อผิดพลาด: $e',
+      };
     }
   }
 
-  /// Cancel session
-  Future<bool> cancelSession(int sessionId, String? reason) async {
+  /// ✅ เพิ่ม: ดึงประวัติ session
+  static Future<Map<String, dynamic>> getSessionHistory(String token) async {
     try {
-      final token = await _getToken();
-      if (token == null) return false;
-
       if (kDebugMode) {
-        debugPrint('🚫 Cancelling session: $sessionId');
-      }
-
-      final response = await http.post(
-        Uri.parse('${AppConfig.baseUrl}/sessions/cancel.php'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'session_id': sessionId,
-          'reason': reason,
-        }),
-      ).timeout(
-        Duration(milliseconds: AppConfig.connectionTimeout),
-      );
-
-      if (kDebugMode) {
-        debugPrint('📊 Cancel Session Status: ${response.statusCode}');
-        debugPrint('📄 Response: ${response.body}');
-      }
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['success'] == true;
-      }
-
-      return false;
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('❌ Error cancelling session: $e');
-      }
-      return false;
-    }
-  }
-
-  /// Get all sessions (for history)
-  Future<List<SessionModel>> getAllSessions({
-    int page = 1,
-    int limit = 20,
-  }) async {
-    try {
-      final token = await _getToken();
-      if (token == null) return [];
-
-      if (kDebugMode) {
-        debugPrint('📜 Fetching session history (page: $page, limit: $limit)');
+        print('╔════════════════════════════════════════╗');
+        print('║     FETCHING SESSION HISTORY           ║');
+        print('╚════════════════════════════════════════╝');
       }
 
       final response = await http.get(
-        Uri.parse(
-            '${AppConfig.baseUrl}/sessions/list.php?page=$page&limit=$limit'),
+        Uri.parse('$baseUrl/sessions/history.php'),
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
         },
-      ).timeout(
-        Duration(milliseconds: AppConfig.connectionTimeout),
-      );
+      ).timeout(const Duration(seconds: 30));
 
       if (kDebugMode) {
-        debugPrint('📊 Get Sessions Status: ${response.statusCode}');
+        print('📊 Status Code: ${response.statusCode}');
+        print('📄 Response: ${response.body}');
       }
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-
-        if (data['success'] == true && data['data'] != null) {
-          final List<dynamic> sessionsJson = data['data'];
-          return sessionsJson
-              .map((json) => SessionModel.fromJson(json))
-              .toList();
-        }
+        final data = json.decode(response.body);
+        return {
+          'success': data['success'] ?? false,
+          'message': data['message'] ?? '',
+          'sessions': data['data']?['sessions'] ?? [],
+        };
+      } else if (response.statusCode == 401) {
+        return {
+          'success': false,
+          'message': 'Token หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง',
+        };
+      } else {
+        return {
+          'success': false,
+          'message': 'ไม่สามารถดึงประวัติ session ได้',
+        };
       }
-
-      return [];
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('❌ Error getting sessions: $e');
+        print('❌ Exception in getSessionHistory: $e');
       }
-      return [];
+      return {
+        'success': false,
+        'message': 'เกิดข้อผิดพลาด: $e',
+      };
+    }
+  }
+
+  /// สร้าง session ใหม่
+  static Future<Map<String, dynamic>> createSession(String token) async {
+    try {
+      if (kDebugMode) {
+        print('╔════════════════════════════════════════╗');
+        print('║       CREATING NEW SESSION             ║');
+        print('╚════════════════════════════════════════╝');
+      }
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/sessions/create_session.php'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 30));
+
+      if (kDebugMode) {
+        print('📊 Status Code: ${response.statusCode}');
+        print('📄 Response: ${response.body}');
+      }
+
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return {
+          'success': data['success'] ?? false,
+          'message': data['message'] ?? '',
+          'session': data['data']?['session'],
+        };
+      } else {
+        final data = json.decode(response.body);
+        return {
+          'success': false,
+          'message': data['message'] ?? 'ไม่สามารถสร้าง session ได้',
+        };
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Exception in createSession: $e');
+      }
+      return {
+        'success': false,
+        'message': 'เกิดข้อผิดพลาด: $e',
+      };
+    }
+  }
+
+  /// จบ session
+  static Future<Map<String, dynamic>> completeSession(
+    String token,
+    int sessionId,
+  ) async {
+    try {
+      if (kDebugMode) {
+        print('╔════════════════════════════════════════╗');
+        print('║      COMPLETING SESSION                ║');
+        print('╚════════════════════════════════════════╝');
+        print('📍 Session ID: $sessionId');
+      }
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/sessions/complete_session.php'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: json.encode({
+          'session_id': sessionId,
+        }),
+      ).timeout(const Duration(seconds: 30));
+
+      if (kDebugMode) {
+        print('📊 Status Code: ${response.statusCode}');
+        print('📄 Response: ${response.body}');
+      }
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return {
+          'success': data['success'] ?? false,
+          'message': data['message'] ?? '',
+        };
+      } else {
+        final data = json.decode(response.body);
+        return {
+          'success': false,
+          'message': data['message'] ?? 'ไม่สามารถจบ session ได้',
+        };
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Exception in completeSession: $e');
+      }
+      return {
+        'success': false,
+        'message': 'เกิดข้อผิดพลาด: $e',
+      };
     }
   }
 }

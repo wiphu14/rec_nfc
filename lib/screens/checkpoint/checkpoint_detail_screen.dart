@@ -1,341 +1,425 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
-import '../../config/app_config.dart';
-import '../../models/checkpoint_model.dart';
+import 'package:provider/provider.dart';
+import '../../providers/session_provider.dart';
+import 'checkpoint_scan_screen.dart';
 
-class CheckpointDetailScreen extends StatelessWidget {
-  final CheckpointModel checkpoint;
+class CheckpointDetailScreen extends StatefulWidget {
+  final Map<String, dynamic> checkpoint;
 
   const CheckpointDetailScreen({
-    Key? key,
+    super.key,
     required this.checkpoint,
-  }) : super(key: key);
+  });
+
+  @override
+  State<CheckpointDetailScreen> createState() => _CheckpointDetailScreenState();
+}
+
+class _CheckpointDetailScreenState extends State<CheckpointDetailScreen> {
+  File? _capturedImage;
+  bool _isLoading = false;
 
   @override
   Widget build(BuildContext context) {
+    final sessionProvider = Provider.of<SessionProvider>(context);
+    final hasActiveSession = sessionProvider.activeSession != null;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('รายละเอียดจุดตรวจ'),
-        backgroundColor: AppConfig.primaryColor,
+        backgroundColor: Colors.blue,
       ),
       body: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Header Card
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    AppConfig.primaryColor,
-                    AppConfig.secondaryColor,
-                  ],
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Sequence Badge
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      'จุดที่ ${checkpoint.sequenceOrder}',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: AppConfig.primaryColor,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
+            _buildHeaderCard(),
 
-                  // Checkpoint Name
-                  Text(
-                    checkpoint.checkpointName,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
+            const SizedBox(height: 16),
 
-                  // Checkpoint Code
-                  Text(
-                    checkpoint.checkpointCode,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      color: Colors.white70,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            // รายละเอียด
+            _buildDetailsCard(),
 
-            // Details Section
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Description
-                  if (checkpoint.description != null) ...[
-                    _buildSectionTitle('รายละเอียด'),
-                    _buildInfoCard(
-                      icon: Icons.description,
-                      content: checkpoint.description!,
-                    ),
-                    const SizedBox(height: 16),
-                  ],
+            const SizedBox(height: 16),
 
-                  // Location Detail
-                  if (checkpoint.locationDetail != null) ...[
-                    _buildSectionTitle('สถานที่'),
-                    _buildInfoCard(
-                      icon: Icons.place,
-                      content: checkpoint.locationDetail!,
-                    ),
-                    const SizedBox(height: 16),
-                  ],
+            // NFC Tags
+            if (widget.checkpoint['nfc_tag_count'] != null &&
+                widget.checkpoint['nfc_tag_count'] > 0)
+              _buildNfcTagsCard(),
 
-                  // Requirements
-                  _buildSectionTitle('ข้อกำหนด'),
-                  _buildRequirementsCard(),
-                  const SizedBox(height: 16),
+            const SizedBox(height: 16),
 
-                  // NFC Tags
-                  _buildSectionTitle('NFC Tags ที่ลงทะเบียน'),
-                  _buildNfcTagsCard(),
-                ],
-              ),
-            ),
+            // รูปภาพที่ถ่าย
+            if (_capturedImage != null) _buildCapturedImageCard(),
+
+            const SizedBox(height: 80),
           ],
         ),
       ),
-      bottomNavigationBar: _buildBottomBar(context),
+      bottomNavigationBar: _buildBottomBar(hasActiveSession),
     );
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+  Widget _buildHeaderCard() {
+    final isRequired = widget.checkpoint['is_required'] == 1 || 
+                       widget.checkpoint['is_required'] == true;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isRequired
+              ? [Colors.orange, Colors.deepOrange]
+              : [Colors.green, Colors.teal],
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              'จุดที่ ${widget.checkpoint['sequence_order'] ?? '?'}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          Text(
+            widget.checkpoint['checkpoint_code'] ?? 'N/A',
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 14,
+            ),
+          ),
+
+          const SizedBox(height: 4),
+
+          Text(
+            widget.checkpoint['checkpoint_name'] ?? 'ไม่มีชื่อ',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (isRequired)
+                _buildBadge('บังคับ', Colors.white),
+              if (widget.checkpoint['require_photo'] == 1 ||
+                  widget.checkpoint['require_photo'] == true)
+                _buildBadge('ถ่ายรูป', Colors.white),
+              if (widget.checkpoint['nfc_tag_count'] != null &&
+                  widget.checkpoint['nfc_tag_count'] > 0)
+                _buildBadge('NFC', Colors.white),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color),
+      ),
       child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 18,
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
           fontWeight: FontWeight.bold,
-          color: Colors.black87,
         ),
       ),
     );
   }
 
-  Widget _buildInfoCard({required IconData icon, required String content}) {
+  Widget _buildDetailsCard() {
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      margin: const EdgeInsets.symmetric(horizontal: 16),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Row(
+        padding: const EdgeInsets.all(16),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: AppConfig.primaryColor, size: 24),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(
-                content,
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: Colors.black87,
-                  height: 1.5,
-                ),
+            const Text(
+              'รายละเอียด',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
               ),
             ),
+            const Divider(),
+
+            if (widget.checkpoint['location_detail'] != null)
+              _buildDetailRow(
+                Icons.location_on,
+                'สถานที่',
+                widget.checkpoint['location_detail'],
+              ),
+
+            if (widget.checkpoint['description'] != null)
+              _buildDetailRow(
+                Icons.description,
+                'คำอธิบาย',
+                widget.checkpoint['description'],
+              ),
+
+            _buildDetailRow(
+              Icons.check_circle,
+              'ประเภท',
+              (widget.checkpoint['is_required'] == 1 ||
+                      widget.checkpoint['is_required'] == true)
+                  ? 'บังคับตรวจ'
+                  : 'ไม่บังคับ',
+            ),
+
+            if (widget.checkpoint['require_photo'] == 1 ||
+                widget.checkpoint['require_photo'] == true)
+              _buildDetailRow(
+                Icons.camera_alt,
+                'ถ่ายรูป',
+                'ต้องถ่ายรูป',
+              ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildRequirementsCard() {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: Colors.blue),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                  ),
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(fontSize: 16),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            _buildRequirementRow(
-              icon: checkpoint.isRequired ? Icons.check_circle : Icons.cancel,
-              label: 'บังคับตรวจ',
-              value: checkpoint.isRequired ? 'ใช่' : 'ไม่',
-              color: checkpoint.isRequired 
-                  ? AppConfig.errorColor 
-                  : AppConfig.successColor,
-            ),
-            const Divider(height: 24),
-            _buildRequirementRow(
-              icon: checkpoint.requirePhoto ? Icons.camera_alt : Icons.cancel,
-              label: 'ต้องถ่ายรูป',
-              value: checkpoint.requirePhoto ? 'ใช่' : 'ไม่',
-              color: checkpoint.requirePhoto 
-                  ? AppConfig.warningColor 
-                  : AppConfig.successColor,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRequirementRow({
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
-    return Row(
-      children: [
-        Icon(icon, color: color, size: 24),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 16,
-              color: Colors.black87,
-            ),
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: color),
-          ),
-          child: Text(
-            value,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-        ),
-      ],
     );
   }
 
   Widget _buildNfcTagsCard() {
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      margin: const EdgeInsets.symmetric(horizontal: 16),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            const Row(
               children: [
-                const Icon(Icons.nfc, color: AppConfig.primaryColor, size: 24),
-                const SizedBox(width: 12),
+                Icon(Icons.nfc, color: Colors.blue),
+                SizedBox(width: 8),
                 Text(
-                  'จำนวน ${checkpoint.nfcTagCount} Tags',
-                  style: const TextStyle(
-                    fontSize: 16,
+                  'NFC Tags',
+                  style: TextStyle(
+                    fontSize: 18,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
             ),
-            if (checkpoint.nfcTags.isNotEmpty) ...[
-              const Divider(height: 24),
-              ...checkpoint.nfcTags.map((tag) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: const BoxDecoration(
-                            color: AppConfig.successColor,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            tag,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontFamily: 'monospace',
-                              color: Colors.grey[700],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )),
-            ],
+            const Divider(),
+            Text(
+              'จุดตรวจนี้มี ${widget.checkpoint['nfc_tag_count']} NFC Tags',
+              style: const TextStyle(fontSize: 16),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildBottomBar(BuildContext context) {
+  Widget _buildCapturedImageCard() {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'รูปภาพที่ถ่าย',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.red),
+                  onPressed: () {
+                    setState(() {
+                      _capturedImage = null;
+                    });
+                  },
+                ),
+              ],
+            ),
+            const Divider(),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.file(
+                _capturedImage!,
+                fit: BoxFit.cover,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomBar(bool hasActiveSession) {
+    if (!hasActiveSession) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        color: Colors.orange[50],
+        child: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.orange),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'ยังไม่มี Session ที่ Active\nกรุณาเริ่ม Session ก่อนตรวจจุด',
+                style: TextStyle(color: Colors.orange),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 10,
-            offset: const Offset(0, -5),
+            offset: const Offset(0, -2),
           ),
         ],
       ),
-      child: SafeArea(
-        child: ElevatedButton.icon(
-          onPressed: () {
-            // TODO: Navigate to scan screen
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('ฟีเจอร์กำลังพัฒนา'),
+      child: Row(
+        children: [
+          // ปุ่มถ่ายรูป
+          if (widget.checkpoint['require_photo'] == 1 ||
+              widget.checkpoint['require_photo'] == true)
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _isLoading ? null : _openCamera,
+                icon: const Icon(Icons.camera_alt),
+                label: const Text('ถ่ายรูป'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
               ),
-            );
-          },
-          icon: const Icon(Icons.nfc),
-          label: const Text('เริ่มสแกน NFC'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppConfig.primaryColor,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
             ),
-            elevation: 0,
+
+          if (widget.checkpoint['require_photo'] == 1 ||
+              widget.checkpoint['require_photo'] == true)
+            const SizedBox(width: 12),
+
+          // ปุ่มสแกน NFC
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: _isLoading ? null : _scanNfc,
+              icon: const Icon(Icons.nfc),
+              label: const Text('สแกน NFC'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+            ),
           ),
+        ],
+      ),
+    );
+  }
+
+  // ✅ แก้ไขฟังก์ชันเปิดกล้อง - ไม่เรียก takePicture โดยตรง
+  Future<void> _openCamera() async {
+    // เปิดหน้ากล้องและรับรูปกลับมา
+    await Navigator.pushNamed(
+      context,
+      '/camera-capture',
+      arguments: {
+        'onImageCaptured': (File imageFile) {
+          if (mounted) {
+            setState(() {
+              _capturedImage = imageFile;
+            });
+          }
+        },
+      },
+    );
+  }
+
+  Future<void> _scanNfc() async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CheckpointScanScreen(
+          checkpoint: widget.checkpoint,
         ),
       ),
     );
+
+    if (result == true && mounted) {
+      // NFC สแกนสำเร็จ - ไปหน้าบันทึก
+      Navigator.pushNamed(
+        context,
+        '/log-checkpoint',
+        arguments: {
+          'checkpoint_id': widget.checkpoint['id'],
+          'nfc_uid': 'scanned_uid',
+        },
+      );
+    }
   }
 }

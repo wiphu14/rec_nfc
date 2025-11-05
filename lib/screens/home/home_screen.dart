@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../config/app_config.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/session_provider.dart';
-import '../../providers/nfc_provider.dart';
-import '../../widgets/loading_widget.dart';
-import '../../widgets/nfc_status_widget.dart';
+import '../../providers/checkpoint_provider.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,362 +19,529 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadData() async {
-    if (!mounted) return;
-
-    debugPrint('╔════════════════════════════════════════╗');
-    debugPrint('║         HOME SCREEN - LOADING          ║');
-    debugPrint('╚════════════════════════════════════════╝');
-
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final sessionProvider = Provider.of<SessionProvider>(context, listen: false);
-    final nfcProvider = Provider.of<NfcProvider>(context, listen: false);
+    final checkpointProvider = Provider.of<CheckpointProvider>(context, listen: false);
 
-    debugPrint('🔐 Auth Status:');
-    debugPrint('   - isLoggedIn: ${authProvider.isLoggedIn}');
-    debugPrint('   - user: ${authProvider.user?.username ?? "null"}');
-    debugPrint('   - token: ${authProvider.token != null ? "exists (${authProvider.token!.length} chars)" : "null"}');
-
-    // Refresh user data
-    await authProvider.refreshUser();
-
-    // Load active session
-    await sessionProvider.loadActiveSession();
-
-    // Check NFC availability
-    await nfcProvider.checkNfcAvailability();
-
-    debugPrint('✅ Home data loaded');
-  }
-
-  Future<void> _logout() async {
-    if (!mounted) return;
-
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('ออกจากระบบ'),
-        content: const Text('คุณต้องการออกจากระบบหรือไม่?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('ยกเลิก'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppConfig.errorColor,
-            ),
-            child: const Text('ออกจากระบบ'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true && mounted) {
-      await authProvider.logout();
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, '/login');
-      }
+    if (authProvider.token != null) {
+      await Future.wait([
+        sessionProvider.loadActiveSession(),
+        checkpointProvider.loadCheckpoints(authProvider.token!),
+      ]);
     }
   }
 
-  void _navigateToHistory() {
-    // Navigate to history screen
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('ฟีเจอร์ประวัติกำลังพัฒนา'),
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-
-  void _navigateToSettings() {
-    // Navigate to settings screen
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('ฟีเจอร์ตั้งค่ากำลังพัฒนา'),
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-
-  void _navigateToCheckpointList() {
-    debugPrint('🔄 Navigating to checkpoint list...');
-    debugPrint('   - Current route: ${ModalRoute.of(context)?.settings.name}');
-    
-    // Navigate without removing current route from stack
-    Navigator.pushNamed(context, '/checkpoint_list');
+  Future<void> _refreshData() async {
+    await _loadData();
   }
 
   @override
   Widget build(BuildContext context) {
+    final authProvider = Provider.of<AuthProvider>(context);
+    final user = authProvider.user;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('หน้าหลัก'),
-        backgroundColor: AppConfig.primaryColor,
+        backgroundColor: Colors.blue,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadData,
+            onPressed: _refreshData,
           ),
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: _logout,
+            onPressed: () async {
+              final confirm = await _showLogoutConfirmDialog();
+              if (confirm == true && mounted) {
+                await authProvider.logout();
+                if (mounted) {
+                  Navigator.pushReplacementNamed(context, '/login');
+                }
+              }
+            },
           ),
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: _loadData,
-        child: Consumer3<AuthProvider, SessionProvider, NfcProvider>(
-          builder: (context, authProvider, sessionProvider, nfcProvider, child) {
-            if (authProvider.isLoading || sessionProvider.isLoading) {
-              return const Center(child: LoadingWidget());
-            }
+        onRefresh: _refreshData,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // User Info Card
+              _buildUserInfoCard(user),
 
-            final user = authProvider.user;
-            final activeSession = sessionProvider.activeSession;
+              const SizedBox(height: 16),
 
-            return SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              // Active Session Card
+              _buildActiveSessionCard(),
+
+              const SizedBox(height: 16),
+
+              // Quick Actions
+              _buildQuickActionsCard(),
+
+              const SizedBox(height: 16),
+
+              // Statistics
+              _buildStatisticsCard(),
+
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserInfoCard(dynamic user) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.blue, Colors.lightBlue],
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'สวัสดี,',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            user?.fullName ?? user?.username ?? 'ผู้ใช้งาน',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              user?.role ?? 'N/A',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActiveSessionCard() {
+    return Consumer<SessionProvider>(
+      builder: (context, sessionProvider, child) {
+        final activeSession = sessionProvider.activeSession;
+        final hasSession = activeSession != null;
+
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // User Info Card
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            AppConfig.primaryColor,
-                            AppConfig.secondaryColor,
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppConfig.primaryColor.withValues(alpha: 0.3),
-                            blurRadius: 10,
-                            offset: const Offset(0, 5),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'สวัสดี!',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.white70,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            user?.fullName ?? 'User',
-                            style: const TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            user?.organization ?? 'Organization',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: Colors.white70,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    // NFC Status
-                    const NfcStatusWidget(),
-
-                    const SizedBox(height: 24),
-
-                    // Active Session Card
-                    if (activeSession != null) ...[
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppConfig.infoColor.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppConfig.infoColor),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Row(
-                              children: [
-                                Icon(
-                                  Icons.play_circle_fill,
-                                  color: AppConfig.infoColor,
-                                ),
-                                SizedBox(width: 8),
-                                Text(
-                                  'รอบการตรวจที่กำลังดำเนินการ',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const Divider(height: 16),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text('รหัสรอบ:'),
-                                Text(
-                                  '#${activeSession.id}',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text('ความคืบหน้า:'),
-                                Text(
-                                  '${activeSession.completedCheckpoints}/${activeSession.totalCheckpoints}',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: AppConfig.primaryColor,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            LinearProgressIndicator(
-                              value: activeSession.totalCheckpoints > 0
-                                  ? activeSession.completedCheckpoints /
-                                      activeSession.totalCheckpoints
-                                  : 0,
-                              backgroundColor: Colors.grey[300],
-                              valueColor: const AlwaysStoppedAnimation<Color>(
-                                AppConfig.primaryColor,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-
-                    // Menu Grid
-                    GridView.count(
-                      crossAxisCount: 2,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      mainAxisSpacing: 16,
-                      crossAxisSpacing: 16,
+                    const Row(
                       children: [
-                        _buildMenuCard(
-                          icon: Icons.play_circle_outline,
-                          title: 'เริ่มรอบการตรวจ',
-                          subtitle: 'เริ่มรอบการตรวจใหม่',
-                          color: AppConfig.successColor,
-                          onTap: _navigateToCheckpointList,
-                        ),
-                        _buildMenuCard(
-                          icon: Icons.history,
-                          title: 'ประวัติ',
-                          subtitle: 'ดูประวัติการตรวจ',
-                          color: AppConfig.infoColor,
-                          onTap: _navigateToHistory,
-                        ),
-                        _buildMenuCard(
-                          icon: Icons.location_on,
-                          title: 'จุดตรวจ',
-                          subtitle: 'รายการจุดตรวจทั้งหมด',
-                          color: AppConfig.warningColor,
-                          onTap: _navigateToCheckpointList,
-                        ),
-                        _buildMenuCard(
-                          icon: Icons.settings,
-                          title: 'ตั้งค่า',
-                          subtitle: 'ตั้งค่าแอพพลิเคชัน',
-                          color: Colors.grey[700]!,
-                          onTap: _navigateToSettings,
+                        Icon(Icons.play_circle, color: Colors.blue),
+                        SizedBox(width: 8),
+                        Text(
+                          'Session ปัจจุบัน',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ],
                     ),
+                    if (hasSession)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.green[100],
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text(
+                          'กำลังดำเนินการ',
+                          style: TextStyle(
+                            color: Colors.green,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
                   ],
+                ),
+                const Divider(),
+
+                if (!hasSession)
+                  Column(
+                    children: [
+                      const Text(
+                        'ยังไม่มี Session ที่ Active',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: sessionProvider.isLoading
+                              ? null
+                              : () => _createSession(),
+                          icon: const Icon(Icons.add),
+                          label: const Text('เริ่ม Session ใหม่'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  _buildActiveSessionContent(activeSession),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildActiveSessionContent(Map<String, dynamic> activeSession) {
+    // ✅ ดึง progress ออกมาก่อน
+    final Map<String, dynamic>? progressData = 
+        activeSession['progress'] as Map<String, dynamic>?;
+    final int completed = progressData?['completed'] ?? 0;
+    final int total = progressData?['total'] ?? 1;
+
+    return Column(
+      children: [
+        _buildSessionInfoRow(
+          'Session ID',
+          '#${activeSession['id']?.toString() ?? 'N/A'}',
+        ),
+        
+        if (progressData != null) ...[
+          _buildSessionInfoRow(
+            'ความคืบหน้า',
+            '$completed/$total',
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            value: completed / total.toDouble(),
+            backgroundColor: Colors.grey[300],
+            valueColor: const AlwaysStoppedAnimation<Color>(
+              Colors.blue,
+            ),
+          ),
+        ],
+
+        const SizedBox(height: 12),
+        Consumer<SessionProvider>(
+          builder: (context, sessionProvider, child) {
+            return SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: sessionProvider.isLoading
+                    ? null
+                    : () => _completeSession(activeSession['id'] as int?),
+                icon: const Icon(Icons.check_circle),
+                label: const Text('จบ Session'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
                 ),
               ),
             );
           },
         ),
+      ],
+    );
+  }
+
+  Widget _buildSessionInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: Colors.grey),
+          ),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.w500),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildMenuCard({
+  Widget _buildQuickActionsCard() {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'เมนูด่วน',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const Divider(),
+            GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: 2,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 2,
+              children: [
+                _buildQuickActionButton(
+                  icon: Icons.location_on,
+                  label: 'จุดตรวจ',
+                  color: Colors.blue,
+                  onTap: () => Navigator.pushNamed(context, '/checkpoints'),
+                ),
+                _buildQuickActionButton(
+                  icon: Icons.history,
+                  label: 'ประวัติ',
+                  color: Colors.green,
+                  onTap: () => Navigator.pushNamed(context, '/sessions'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickActionButton({
     required IconData icon,
-    required String title,
-    required String subtitle,
+    required String label,
     required Color color,
     required VoidCallback onTap,
   }) {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 32),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
       ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
+    );
+  }
+
+  Widget _buildStatisticsCard() {
+    return Consumer<CheckpointProvider>(
+      builder: (context, checkpointProvider, child) {
+        final stats = checkpointProvider.statistics;
+
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'สถิติจุดตรวจ',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-                child: Icon(
-                  icon,
-                  size: 40,
-                  color: color,
+                const Divider(),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildStatItem(
+                      'ทั้งหมด',
+                      stats?['total']?.toString() ?? '0',
+                      Colors.blue,
+                    ),
+                    _buildStatItem(
+                      'บังคับ',
+                      stats?['required']?.toString() ?? '0',
+                      Colors.orange,
+                    ),
+                    _buildStatItem(
+                      'ไม่บังคับ',
+                      stats?['optional']?.toString() ?? '0',
+                      Colors.green,
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildStatItem(String label, String value, Color color) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 32,
+            fontWeight: FontWeight.bold,
+            color: color,
           ),
         ),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            color: Colors.grey,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _createSession() async {
+    if (!mounted) return;
+
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final sessionProvider = Provider.of<SessionProvider>(context, listen: false);
+
+    final result = await sessionProvider.createSession(authProvider.token!);
+
+    if (!mounted) return;
+
+    if (result['success']) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ เริ่ม Session สำเร็จ'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ ${result['message']}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _completeSession(int? sessionId) async {
+    if (sessionId == null) return;
+
+    final confirm = await _showCompleteSessionDialog();
+    if (confirm != true || !mounted) return;
+
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final sessionProvider = Provider.of<SessionProvider>(context, listen: false);
+
+    final result = await sessionProvider.completeSession(
+      authProvider.token!,
+      sessionId,
+    );
+
+    if (!mounted) return;
+
+    if (result['success']) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ จบ Session สำเร็จ'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ ${result['message']}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<bool?> _showLogoutConfirmDialog() {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('ออกจากระบบ'),
+        content: const Text('คุณต้องการออกจากระบบหรือไม่?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('ยกเลิก'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('ออกจากระบบ'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<bool?> _showCompleteSessionDialog() {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('จบ Session'),
+        content: const Text('คุณต้องการจบ Session นี้หรือไม่?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('ยกเลิก'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('จบ Session'),
+          ),
+        ],
       ),
     );
   }

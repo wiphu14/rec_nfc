@@ -1,147 +1,220 @@
 import 'dart:io';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:camera/camera.dart';
 import '../services/camera_service.dart';
 
-
 class CameraProvider with ChangeNotifier {
-  final CameraService _cameraService = CameraService();
-
-  CameraController? _controller;
-  bool _isInitialized = false;
-  bool _isTakingPicture = false;
-  String? _capturedImagePath;
+  CameraController? _cameraController;
+  bool _isCameraInitialized = false;
+  bool _isProcessing = false;
+  File? _capturedImage;
   String? _errorMessage;
+  List<CameraDescription>? _availableCameras;
+  int _selectedCameraIndex = 0;
 
   // Getters
-  CameraController? get controller => _controller;
-  bool get isInitialized => _isInitialized;
-  bool get isTakingPicture => _isTakingPicture;
-  String? get capturedImagePath => _capturedImagePath;
+  CameraController? get cameraController => _cameraController;
+  bool get isCameraInitialized => _isCameraInitialized;
+  bool get isProcessing => _isProcessing;
+  File? get capturedImage => _capturedImage;
   String? get errorMessage => _errorMessage;
+  List<CameraDescription>? get availableCameras => _availableCameras;
+  int get selectedCameraIndex => _selectedCameraIndex;
 
-  // Initialize camera
-  Future<bool> initializeCamera({
-    CameraLensDirection direction = CameraLensDirection.back,
-  }) async {
-    _isInitialized = false;
-    _errorMessage = null;
-    notifyListeners();
-
+  /// เช็คว่ามีกล้องหรือไม่
+  Future<bool> checkCameraAvailability() async {
     try {
-      _controller = await _cameraService.initializeCamera(direction: direction);
-
-      if (_controller == null) {
-        _errorMessage = 'ไม่สามารถเปิดกล้องได้';
-        notifyListeners();
-        return false;
-      }
-
-      _isInitialized = true;
-      notifyListeners();
-      return true;
+      // ✅ เรียก static method
+      _availableCameras = await CameraService.getAvailableCameras();
+      return _availableCameras != null && _availableCameras!.isNotEmpty;
     } catch (e) {
-      _errorMessage = 'เกิดข้อผิดพลาด: ${e.toString()}';
+      _errorMessage = 'ไม่สามารถเข้าถึงกล้องได้: $e';
       notifyListeners();
       return false;
     }
   }
 
-  // Take picture
-  Future<String?> takePicture() async {
-    if (!_isInitialized || _isTakingPicture) {
+  /// เริ่มต้นกล้อง
+  Future<void> initializeCamera({int cameraIndex = 0}) async {
+    try {
+      _isProcessing = true;
+      _errorMessage = null;
+      notifyListeners();
+
+      // ตรวจสอบว่ามีกล้องหรือไม่
+      if (_availableCameras == null || _availableCameras!.isEmpty) {
+        await checkCameraAvailability();
+      }
+
+      if (_availableCameras == null || _availableCameras!.isEmpty) {
+        throw Exception('ไม่พบกล้อง');
+      }
+
+      // ปิดกล้องเก่า (ถ้ามี)
+      if (_cameraController != null) {
+        await _cameraController!.dispose();
+      }
+
+      // เลือกกล้อง
+      _selectedCameraIndex = cameraIndex;
+      final camera = _availableCameras![_selectedCameraIndex];
+
+      // ✅ เรียก static method เพื่อสร้าง CameraController
+      _cameraController = await CameraService.initializeCamera(camera);
+      _isCameraInitialized = true;
+
+      if (kDebugMode) {
+        print('✅ Camera initialized: ${camera.name}');
+      }
+
+      _isProcessing = false;
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = 'ไม่สามารถเริ่มกล้องได้: $e';
+      _isCameraInitialized = false;
+      _isProcessing = false;
+
+      if (kDebugMode) {
+        print('❌ Camera initialization error: $e');
+      }
+
+      notifyListeners();
+    }
+  }
+
+  /// ถ่ายรูป
+  Future<File?> takePicture() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      _errorMessage = 'กล้องยังไม่พร้อม';
+      notifyListeners();
       return null;
     }
 
-    _isTakingPicture = true;
-    _errorMessage = null;
-    notifyListeners();
-
     try {
-      final imagePath = await _cameraService.takePicture();
+      _isProcessing = true;
+      _errorMessage = null;
+      notifyListeners();
 
-      if (imagePath != null) {
-        _capturedImagePath = imagePath;
-      } else {
-        _errorMessage = 'ไม่สามารถถ่ายรูปได้';
+      // ✅ เรียก static method และส่ง controller เป็น parameter
+      final File? imageFile = await CameraService.takePicture(_cameraController!);
+
+      if (imageFile != null) {
+        _capturedImage = imageFile;
+
+        if (kDebugMode) {
+          print('✅ Picture taken: ${imageFile.path}');
+        }
       }
 
-      _isTakingPicture = false;
+      _isProcessing = false;
       notifyListeners();
-      return imagePath;
+
+      return imageFile;
     } catch (e) {
-      _errorMessage = 'เกิดข้อผิดพลาด: ${e.toString()}';
-      _isTakingPicture = false;
+      _errorMessage = 'ไม่สามารถถ่ายรูปได้: $e';
+      _isProcessing = false;
+
+      if (kDebugMode) {
+        print('❌ Take picture error: $e');
+      }
+
       notifyListeners();
       return null;
     }
   }
 
-  // Retake picture
-  void retakePicture() {
-    _capturedImagePath = null;
-    notifyListeners();
-  }
-
-  // Compress image
-  Future<File> compressImage(String imagePath, {int quality = 85}) async {
-    return await _cameraService.compressImage(imagePath, quality: quality);
-  }
-
-  // Upload image
-  Future<Map<String, dynamic>> uploadImage(File imageFile) async {
-    return await _cameraService.uploadImage(imageFile);
-  }
-
-  // Switch camera
-  Future<bool> switchCamera() async {
+  /// บีบอัดรูปภาพ
+  Future<File?> compressImage(File imageFile, {int quality = 85}) async {
     try {
-      _isInitialized = false;
+      _isProcessing = true;
       notifyListeners();
 
-      _controller = await _cameraService.switchCamera();
+      // ✅ เรียก static method
+      final File? compressedFile = await CameraService.compressImage(
+        imageFile,
+        quality: quality,
+      );
 
-      if (_controller == null) {
-        _errorMessage = 'ไม่สามารถสลับกล้องได้';
-        notifyListeners();
-        return false;
+      _isProcessing = false;
+      notifyListeners();
+
+      return compressedFile;
+    } catch (e) {
+      _errorMessage = 'ไม่สามารถบีบอัดรูปได้: $e';
+      _isProcessing = false;
+
+      if (kDebugMode) {
+        print('❌ Compress error: $e');
       }
 
-      _isInitialized = true;
       notifyListeners();
-      return true;
-    } catch (e) {
-      _errorMessage = 'เกิดข้อผิดพลาด: ${e.toString()}';
-      notifyListeners();
-      return false;
+      return null;
     }
   }
 
-  // Check camera availability
-  Future<bool> isCameraAvailable() async {
-    return await _cameraService.isCameraAvailable();
+  /// สลับกล้อง (หน้า/หลัง)
+  Future<void> switchCamera() async {
+    if (_availableCameras == null || _availableCameras!.length < 2) {
+      _errorMessage = 'ไม่มีกล้องอื่นให้สลับ';
+      notifyListeners();
+      return;
+    }
+
+    try {
+      // สลับ index
+      _selectedCameraIndex = (_selectedCameraIndex + 1) % _availableCameras!.length;
+
+      // เริ่มกล้องใหม่
+      await initializeCamera(cameraIndex: _selectedCameraIndex);
+    } catch (e) {
+      _errorMessage = 'ไม่สามารถสลับกล้องได้: $e';
+      notifyListeners();
+    }
   }
 
-  // Get file size
-  Future<int> getFileSize(String filePath) async {
-    return await _cameraService.getFileSize(filePath);
+  /// ล้างข้อมูลรูปที่ถ่าย
+  void clearCapturedImage() {
+    _capturedImage = null;
+    notifyListeners();
   }
 
-  // Format file size
-  String formatFileSize(int bytes) {
-    return _cameraService.formatFileSize(bytes);
-  }
-
-  // Clear error
+  /// ล้าง error message
   void clearError() {
     _errorMessage = null;
     notifyListeners();
   }
 
-  // Dispose
+  /// รีเซ็ตทุกอย่าง
+  void reset() {
+    _capturedImage = null;
+    _errorMessage = null;
+    _isProcessing = false;
+    notifyListeners();
+  }
+
+  /// ดูขนาดไฟล์
+  Future<int?> getFileSize(File file) async {
+    try {
+      // ✅ เรียก static method
+      return await CameraService.getFileSize(file);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting file size: $e');
+      }
+      return null;
+    }
+  }
+
+  /// แปลงขนาดไฟล์เป็นข้อความ
+  String formatFileSize(int bytes) {
+    // ✅ เรียก static method
+    return CameraService.formatFileSize(bytes);
+  }
+
   @override
   void dispose() {
-    _cameraService.dispose();
+    // ปิดกล้อง
+    _cameraController?.dispose();
     super.dispose();
   }
 }

@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../config/app_config.dart';
-import '../../providers/auth_provider.dart';
 import '../../providers/checkpoint_provider.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/session_provider.dart';
-import '../../widgets/checkpoint_card.dart';
-import '../../widgets/loading_widget.dart';
+import 'checkpoint_detail_screen.dart';
 
 class CheckpointListScreen extends StatefulWidget {
   const CheckpointListScreen({super.key});
@@ -15,259 +13,69 @@ class CheckpointListScreen extends StatefulWidget {
 }
 
 class _CheckpointListScreenState extends State<CheckpointListScreen> {
-  bool _isInitialized = false;
-  bool _isLoadingData = false;
-
   @override
   void initState() {
     super.initState();
-    debugPrint('╔════════════════════════════════════════╗');
-    debugPrint('║   CHECKPOINT LIST SCREEN - INIT        ║');
-    debugPrint('╚════════════════════════════════════════╝');
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    
-    if (!_isInitialized && !_isLoadingData) {
-      _isInitialized = true;
-      
-      // Run after frame is rendered
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _checkAuthAndLoadData();
-      });
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAuthAndLoadData();
+    });
   }
 
   Future<void> _checkAuthAndLoadData() async {
-    if (!mounted) return;
+    print('╔════════════════════════════════════════╗');
+    print('║   CHECKPOINT LIST SCREEN - INIT        ║');
+    print('╚════════════════════════════════════════╝');
 
-    // ป้องกันการโหลดซ้ำ
-    if (_isLoadingData) {
-      debugPrint('⚠️ Already loading data, skipping...');
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    print('🔐 Checking auth status...');
+    print('   - isLoggedIn: ${authProvider.isLoggedIn}');
+    print('   - user: ${authProvider.user?.username}');
+    print('   - token exists: ${authProvider.token != null}');
+
+    if (!authProvider.isLoggedIn || authProvider.token == null) {
+      print('❌ Not logged in - redirecting to login');
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/login');
+      }
       return;
     }
 
-    setState(() {
-      _isLoadingData = true;
-    });
-
-    try {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-
-      debugPrint('🔐 Checking auth status...');
-      debugPrint('   - isLoggedIn: ${authProvider.isLoggedIn}');
-      debugPrint('   - user: ${authProvider.user?.username ?? "null"}');
-      debugPrint('   - token exists: ${authProvider.token != null}');
-
-      // Check if user is still logged in
-      if (!authProvider.isLoggedIn) {
-        debugPrint('⚠️ User not logged in - redirecting to login');
-        
-        if (mounted) {
-          Navigator.pushReplacementNamed(context, '/login');
-        }
-        return;
-      }
-
-      debugPrint('✅ User is logged in - loading data');
-      await _loadData();
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingData = false;
-        });
-      }
-    }
+    print('✅ User is logged in - loading data');
+    await _loadData();
   }
 
   Future<void> _loadData() async {
-    if (!mounted) return;
-
-    debugPrint('📍 Loading checkpoints and session...');
-
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final checkpointProvider =
-        Provider.of<CheckpointProvider>(context, listen: false);
-    final sessionProvider =
-        Provider.of<SessionProvider>(context, listen: false);
-
-    // Load checkpoints
-    final checkpointSuccess = await checkpointProvider.loadCheckpoints();
+    print('📍 Loading checkpoints and session...');
     
-    if (!checkpointSuccess && mounted) {
-      // Check if token expired
-      if (checkpointProvider.tokenExpired) {
-        debugPrint('⚠️ Token expired - logging out');
-        
-        await authProvider.logout();
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง'),
-              backgroundColor: AppConfig.errorColor,
-              duration: Duration(seconds: 3),
-            ),
-          );
-          
-          Navigator.pushReplacementNamed(context, '/login');
-        }
-        return;
-      }
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final checkpointProvider = Provider.of<CheckpointProvider>(context, listen: false);
+    final sessionProvider = Provider.of<SessionProvider>(context, listen: false);
 
-      // แสดง error แต่ไม่ redirect
-      if (mounted && checkpointProvider.errorMessage != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(checkpointProvider.errorMessage!),
-            backgroundColor: AppConfig.errorColor,
-            action: SnackBarAction(
-              label: 'ลองอีกครั้ง',
-              textColor: Colors.white,
-              onPressed: _loadData,
-            ),
-          ),
-        );
-      }
-    }
-
-    // Load session (don't redirect on failure)
+    // ✅ ส่ง token เป็น parameter
+    await checkpointProvider.loadCheckpoints(authProvider.token!);
+    
+    // ✅ ไม่ต้องรับค่า return เพราะเป็น Future<void>
     await sessionProvider.loadActiveSession();
 
-    if (mounted) {
-      debugPrint('✅ Data loading completed');
-    }
-  }
-
-  Future<void> _startNewSession() async {
-    if (!mounted) return;
-
-    debugPrint('╔════════════════════════════════════════╗');
-    debugPrint('║      START NEW SESSION REQUEST         ║');
-    debugPrint('╚════════════════════════════════════════╝');
-
-    final sessionProvider =
-        Provider.of<SessionProvider>(context, listen: false);
-
-    // Show confirmation dialog
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('เริ่มรอบการตรวจใหม่'),
-        content: const Text('คุณต้องการเริ่มรอบการตรวจใหม่หรือไม่?'),
-        actions: [
-          TextButton(
-            onPressed: () {
-              debugPrint('❌ User cancelled session creation');
-              Navigator.pop(dialogContext, false);
-            },
-            child: const Text('ยกเลิก'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              debugPrint('✅ User confirmed session creation');
-              Navigator.pop(dialogContext, true);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppConfig.primaryColor,
-            ),
-            child: const Text('เริ่มรอบการตรวจ'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true && mounted) {
-      debugPrint('🔄 Calling sessionProvider.createSession()...');
-      
-      // Show loading dialog
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: Card(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('กำลังสร้างรอบการตรวจ...'),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-
-      final success = await sessionProvider.createSession();
-
-      // Close loading dialog
-      if (mounted) {
-        Navigator.pop(context);
-      }
-
-      if (success && mounted) {
-        debugPrint('✅ Session created successfully!');
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('เริ่มรอบการตรวจใหม่สำเร็จ'),
-            backgroundColor: AppConfig.successColor,
-          ),
-        );
-        setState(() {});
-      } else if (mounted) {
-        final errorMsg = sessionProvider.errorMessage ?? 'ไม่สามารถเริ่มรอบการตรวจได้';
-        
-        debugPrint('❌ Failed to create session: $errorMsg');
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(errorMsg),
-            backgroundColor: AppConfig.errorColor,
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: 'ลองอีกครั้ง',
-              textColor: Colors.white,
-              onPressed: _startNewSession,
-            ),
-          ),
-        );
+    // ✅ ตรวจสอบ error จาก errorMessage แทน tokenExpired
+    if (mounted && checkpointProvider.errorMessage != null) {
+      // ถ้ามี error message ที่บอกว่า token หมดอายุ
+      if (checkpointProvider.errorMessage!.contains('Token') ||
+          checkpointProvider.errorMessage!.contains('token')) {
+        print('! Token expired - logging out');
+        await authProvider.logout();
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/login');
+        }
       }
     }
+
+    print('✅ Data loading completed');
   }
 
-  void _navigateToCheckpointScan(int checkpointId) {
-    final sessionProvider =
-        Provider.of<SessionProvider>(context, listen: false);
-    final checkpointProvider =
-        Provider.of<CheckpointProvider>(context, listen: false);
-
-    if (sessionProvider.currentSession == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('กรุณาเริ่มรอบการตรวจก่อน'),
-          backgroundColor: AppConfig.warningColor,
-        ),
-      );
-      return;
-    }
-
-    final checkpoint = checkpointProvider.checkpoints
-        .firstWhere((cp) => cp.id == checkpointId);
-
-    Navigator.pushNamed(
-      context,
-      '/checkpoint_scan',
-      arguments: {
-        'checkpoint': checkpoint,
-        'session': sessionProvider.currentSession!,
-      },
-    );
+  Future<void> _refreshData() async {
+    await _loadData();
   }
 
   @override
@@ -275,197 +83,96 @@ class _CheckpointListScreenState extends State<CheckpointListScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('รายการจุดตรวจ'),
-        backgroundColor: AppConfig.primaryColor,
+        backgroundColor: Colors.blue,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadData,
+            onPressed: _refreshData,
           ),
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: _loadData,
-        child: Consumer3<AuthProvider, CheckpointProvider, SessionProvider>(
-          builder: (context, authProvider, checkpointProvider, sessionProvider, child) {
-            // Show loading while initializing or loading data
-            if (!_isInitialized || _isLoadingData) {
-              return const Center(child: LoadingWidget());
-            }
-
-            // Check if still loading
+        onRefresh: _refreshData,
+        child: Consumer<CheckpointProvider>(
+          builder: (context, checkpointProvider, child) {
+            // แสดง loading
             if (checkpointProvider.isLoading) {
-              return const Center(child: LoadingWidget());
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
             }
 
-            // Show error if any (without redirecting)
+            // แสดง error
             if (checkpointProvider.errorMessage != null) {
               return Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.error_outline,
-                      size: 64,
-                      color: Colors.grey[400],
+                      size: 60,
+                      color: Colors.red,
                     ),
                     const SizedBox(height: 16),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 32),
-                      child: Text(
-                        checkpointProvider.errorMessage!,
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey[600],
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
+                    Text(
+                      checkpointProvider.errorMessage!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.red),
                     ),
-                    const SizedBox(height: 24),
-                    ElevatedButton.icon(
-                      onPressed: _loadData,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('ลองอีกครั้ง'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppConfig.primaryColor,
-                      ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _refreshData,
+                      child: const Text('ลองอีกครั้ง'),
                     ),
                   ],
                 ),
               );
             }
 
+            // ไม่มีจุดตรวจ
             if (checkpointProvider.checkpoints.isEmpty) {
               return Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
-                      Icons.location_off,
-                      size: 64,
-                      color: Colors.grey[400],
+                    const Icon(
+                      Icons.inbox_outlined,
+                      size: 60,
+                      color: Colors.grey,
                     ),
                     const SizedBox(height: 16),
-                    Text(
+                    const Text(
                       'ไม่มีจุดตรวจ',
                       style: TextStyle(
                         fontSize: 18,
-                        color: Colors.grey[600],
+                        color: Colors.grey,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'กรุณาติดต่อผู้ดูแลระบบเพื่อเพิ่มจุดตรวจ',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey[500],
-                      ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _refreshData,
+                      child: const Text('รีเฟรช'),
                     ),
                   ],
                 ),
               );
             }
 
-            final activeSession = sessionProvider.currentSession;
-
+            // แสดงรายการจุดตรวจ
             return Column(
               children: [
-                // Session Status Card
-                Container(
-                  margin: const EdgeInsets.all(16),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: activeSession != null
-                        ? AppConfig.successColor.withValues(alpha: 0.1)
-                        : AppConfig.warningColor.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: activeSession != null
-                          ? AppConfig.successColor
-                          : AppConfig.warningColor,
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            activeSession != null
-                                ? Icons.play_circle_fill
-                                : Icons.warning_amber_rounded,
-                            color: activeSession != null
-                                ? AppConfig.successColor
-                                : AppConfig.warningColor,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              activeSession != null
-                                  ? 'รอบการตรวจกำลังดำเนินการ'
-                                  : 'ยังไม่ได้เริ่มรอบการตรวจ',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          if (activeSession == null)
-                            ElevatedButton(
-                              onPressed: _startNewSession,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppConfig.primaryColor,
-                              ),
-                              child: const Text('เริ่มรอบการตรวจ'),
-                            ),
-                        ],
-                      ),
-                      if (activeSession != null) ...[
-                        const Divider(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text('ความคืบหน้า:'),
-                            Text(
-                              '${activeSession.completedCheckpoints}/${activeSession.totalCheckpoints}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: AppConfig.primaryColor,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        LinearProgressIndicator(
-                          value: activeSession.totalCheckpoints > 0
-                              ? activeSession.completedCheckpoints /
-                                  activeSession.totalCheckpoints
-                              : 0,
-                          backgroundColor: Colors.grey[300],
-                          valueColor: const AlwaysStoppedAnimation<Color>(
-                            AppConfig.successColor,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
+                // สถิติ
+                if (checkpointProvider.statistics != null)
+                  _buildStatistics(checkpointProvider.statistics!),
 
-                // Checkpoint List
+                // รายการจุดตรวจ
                 Expanded(
                   child: ListView.builder(
+                    padding: const EdgeInsets.all(8),
                     itemCount: checkpointProvider.checkpoints.length,
                     itemBuilder: (context, index) {
                       final checkpoint = checkpointProvider.checkpoints[index];
-                      final isCompleted = sessionProvider
-                          .isCheckpointCompleted(checkpoint.id);
-
-                      return CheckpointCard(
-                        checkpoint: checkpoint,
-                        isCompleted: isCompleted,
-                        onTap: () {
-                          _navigateToCheckpointScan(checkpoint.id);
-                        },
-                      );
+                      return _buildCheckpointCard(checkpoint);
                     },
                   ),
                 ),
@@ -473,6 +180,123 @@ class _CheckpointListScreenState extends State<CheckpointListScreen> {
             );
           },
         ),
+      ),
+    );
+  }
+
+  Widget _buildStatistics(Map<String, dynamic> statistics) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      color: Colors.blue[50],
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildStatItem(
+            'ทั้งหมด',
+            statistics['total']?.toString() ?? '0',
+            Colors.blue,
+          ),
+          _buildStatItem(
+            'บังคับ',
+            statistics['required']?.toString() ?? '0',
+            Colors.orange,
+          ),
+          _buildStatItem(
+            'ไม่บังคับ',
+            statistics['optional']?.toString() ?? '0',
+            Colors.green,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatItem(String label, String value, Color color) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            color: Colors.grey,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCheckpointCard(checkpoint) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: checkpoint.isRequired ? Colors.orange : Colors.green,
+          child: Text(
+            checkpoint.sequenceOrder.toString(),
+            style: const TextStyle(color: Colors.white),
+          ),
+        ),
+        title: Text(
+          checkpoint.checkpointName,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(checkpoint.checkpointCode),
+            if (checkpoint.locationDetail != null)
+              Text(
+                checkpoint.locationDetail!,
+                style: const TextStyle(fontSize: 12),
+              ),
+          ],
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (checkpoint.requirePhoto)
+              const Icon(Icons.camera_alt, size: 16, color: Colors.blue),
+            const SizedBox(width: 4),
+            if (checkpoint.nfcTagCount > 0)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.blue[100],
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '${checkpoint.nfcTagCount} NFC',
+                  style: const TextStyle(fontSize: 10),
+                ),
+              ),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right),
+          ],
+        ),
+        onTap: () async {
+          // ✅ ส่ง checkpoint.toMap() แทนที่จะส่ง model โดยตรง
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => CheckpointDetailScreen(
+                checkpoint: checkpoint.toMap(),
+              ),
+            ),
+          );
+
+          // Reload ถ้ามีการเปลี่ยนแปลง
+          if (result == true && mounted) {
+            _refreshData();
+          }
+        },
       ),
     );
   }

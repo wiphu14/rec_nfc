@@ -1,283 +1,209 @@
-// lib/services/camera_service.dart
-
-import 'dart:io'; // ✅ เพิ่ม
-import 'dart:convert'; // ✅ เพิ่ม
+import 'dart:io';
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
+import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
-import 'package:image/image.dart' as img;
-import 'package:http/http.dart' as http;
-
-import '../config/api_config.dart'; // ✅ เพิ่ม
-import 'storage_service.dart';
 
 class CameraService {
-  final StorageService _storageService = StorageService();
-  
-  List<CameraDescription>? _cameras;
-  CameraController? _controller;
-
-  // Get available cameras
-  Future<List<CameraDescription>> getAvailableCameras() async {
-    if (_cameras == null) {
-      _cameras = await availableCameras();
+  /// ดึงรายการกล้องที่มีในเครื่อง
+  static Future<List<CameraDescription>> getAvailableCameras() async {
+    try {
+      final cameras = await availableCameras();
+      if (kDebugMode) {
+        print('📷 Available cameras: ${cameras.length}');
+        for (var camera in cameras) {
+          print('   - ${camera.name}: ${camera.lensDirection}');
+        }
+      }
+      return cameras;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error getting cameras: $e');
+      }
+      return [];
     }
-    return _cameras!;
   }
 
-  // Initialize camera
-  Future<CameraController?> initializeCamera({
-    CameraLensDirection direction = CameraLensDirection.back,
+  /// เริ่มต้นกล้อง
+  static Future<CameraController> initializeCamera(
+    CameraDescription camera, {
+    ResolutionPreset resolution = ResolutionPreset.high,
   }) async {
     try {
-      final cameras = await getAvailableCameras();
-      
-      if (cameras.isEmpty) {
-        return null;
-      }
-
-      // Find camera with specified direction
-      CameraDescription? selectedCamera;
-      try {
-        selectedCamera = cameras.firstWhere(
-          (camera) => camera.lensDirection == direction,
-        );
-      } catch (e) {
-        // If not found, use first camera
-        selectedCamera = cameras.first;
-      }
-
-      _controller = CameraController(
-        selectedCamera,
-        ResolutionPreset.high,
+      final controller = CameraController(
+        camera,
+        resolution,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
 
-      await _controller!.initialize();
-      
-      return _controller;
-    } catch (e) {
-      print('Error initializing camera: $e');
-      return null;
-    }
-  }
+      await controller.initialize();
 
-  // Take picture
-  Future<String?> takePicture() async {
-    if (_controller == null || !_controller!.value.isInitialized) {
-      return null;
-    }
-
-    try {
-      final XFile image = await _controller!.takePicture();
-      return image.path;
-    } catch (e) {
-      print('Error taking picture: $e');
-      return null;
-    }
-  }
-
-  // Compress image
-  Future<File> compressImage(String imagePath, {int quality = 85}) async {
-    try {
-      // Read image
-      final imageFile = File(imagePath);
-      final imageBytes = await imageFile.readAsBytes();
-      final image = img.decodeImage(imageBytes);
-
-      if (image == null) {
-        return imageFile;
+      if (kDebugMode) {
+        print('✅ Camera initialized: ${camera.name}');
       }
 
-      // Resize if too large (max 1920px)
-      img.Image resized = image;
-      if (image.width > 1920 || image.height > 1920) {
-        if (image.width > image.height) {
-          resized = img.copyResize(image, width: 1920);
-        } else {
-          resized = img.copyResize(image, height: 1920);
+      return controller;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error initializing camera: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// ถ่ายรูป
+  static Future<File?> takePicture(CameraController controller) async {
+    if (!controller.value.isInitialized) {
+      if (kDebugMode) {
+        print('❌ Camera not initialized');
+      }
+      return null;
+    }
+
+    try {
+      // ถ่ายรูป
+      final XFile picture = await controller.takePicture();
+
+      if (kDebugMode) {
+        print('✅ Picture taken: ${picture.path}');
+      }
+
+      return File(picture.path);
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error taking picture: $e');
+      }
+      return null;
+    }
+  }
+
+  /// บีบอัดรูปภาพ
+  static Future<File?> compressImage(
+    File imageFile, {
+    int quality = 85,
+    int maxWidth = 1920,
+    int maxHeight = 1080,
+  }) async {
+    try {
+      if (kDebugMode) {
+        print('🔄 Compressing image...');
+      }
+
+      // อ่านไฟล์รูปภาพ
+      final bytes = await imageFile.readAsBytes();
+      final image = img.decodeImage(bytes);
+
+      if (image == null) {
+        if (kDebugMode) {
+          print('❌ Failed to decode image');
         }
-      }
-
-      // Compress
-      final compressedBytes = img.encodeJpg(resized, quality: quality);
-
-      // Save to temp file
-      final tempDir = await getTemporaryDirectory();
-      final tempPath = path.join(
-        tempDir.path,
-        'compressed_${DateTime.now().millisecondsSinceEpoch}.jpg',
-      );
-
-      final compressedFile = File(tempPath);
-      await compressedFile.writeAsBytes(compressedBytes);
-
-      return compressedFile;
-    } catch (e) {
-      print('Error compressing image: $e');
-      return File(imagePath);
-    }
-  }
-
-  // Create thumbnail
-  Future<File?> createThumbnail(String imagePath, {int size = 300}) async {
-    try {
-      final imageFile = File(imagePath);
-      final imageBytes = await imageFile.readAsBytes();
-      final image = img.decodeImage(imageBytes);
-
-      if (image == null) {
         return null;
       }
 
-      // Create square thumbnail
-      final thumbnail = img.copyResizeCropSquare(image, size: size);
-      final thumbnailBytes = img.encodeJpg(thumbnail, quality: 85);
+      // ปรับขนาดถ้ารูปใหญ่เกินไป
+      img.Image resized = image;
+      if (image.width > maxWidth || image.height > maxHeight) {
+        resized = img.copyResize(
+          image,
+          width: image.width > maxWidth ? maxWidth : null,
+          height: image.height > maxHeight ? maxHeight : null,
+        );
+      }
 
-      // Save to temp file
+      // บีบอัดรูป
+      final compressedBytes = img.encodeJpg(resized, quality: quality);
+
+      // บันทึกไฟล์
       final tempDir = await getTemporaryDirectory();
-      final tempPath = path.join(
-        tempDir.path,
-        'thumb_${DateTime.now().millisecondsSinceEpoch}.jpg',
-      );
+      final fileName = 'compressed_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final compressedFile = File(path.join(tempDir.path, fileName));
+      await compressedFile.writeAsBytes(compressedBytes);
 
-      final thumbnailFile = File(tempPath);
-      await thumbnailFile.writeAsBytes(thumbnailBytes);
+      // แสดงขนาดไฟล์
+      final originalSize = await imageFile.length();
+      final compressedSize = await compressedFile.length();
+      final reduction = ((originalSize - compressedSize) / originalSize * 100).toStringAsFixed(1);
 
-      return thumbnailFile;
+      if (kDebugMode) {
+        print('✅ Image compressed:');
+        print('   Original: ${formatFileSize(originalSize)}');
+        print('   Compressed: ${formatFileSize(compressedSize)}');
+        print('   Reduction: $reduction%');
+      }
+
+      return compressedFile;
     } catch (e) {
-      print('Error creating thumbnail: $e');
+      if (kDebugMode) {
+        print('❌ Error compressing image: $e');
+      }
       return null;
     }
   }
 
-  // Upload image to server
-  Future<Map<String, dynamic>> uploadImage(File imageFile) async {
+  /// ดูขนาดไฟล์
+  static Future<int> getFileSize(File file) async {
     try {
-      final token = await _storageService.getToken();
-
-      if (token == null) {
-        return {
-          'success': false,
-          'message': 'ไม่พบ Token',
-        };
-      }
-
-      var request = http.MultipartRequest(
-        'POST',
-        Uri.parse(ApiConfig.uploadImageEndpoint), // ✅ แก้ใช้ ApiConfig
-      );
-
-      request.headers['Authorization'] = 'Bearer $token';
-      
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'image',
-          imageFile.path,
-        ),
-      );
-
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-      final data = jsonDecode(response.body);
-
-      if (response.statusCode == 200 && data['success'] == true) {
-        return {
-          'success': true,
-          'message': data['message'],
-          'image_path': data['data']['image_path'],
-          'image_thumbnail': data['data']['image_thumbnail'],
-          'image_url': data['data']['image_url'],
-          'thumbnail_url': data['data']['thumbnail_url'],
-        };
-      } else {
-        return {
-          'success': false,
-          'message': data['message'] ?? 'อัพโหลดรูปภาพไม่สำเร็จ',
-        };
-      }
-    } catch (e) {
-      return {
-        'success': false,
-        'message': 'เกิดข้อผิดพลาด: ${e.toString()}',
-      };
-    }
-  }
-
-  // Save image locally
-  Future<String?> saveImageLocally(String imagePath) async {
-    try {
-      final appDir = await getApplicationDocumentsDirectory();
-      final savedDir = Directory('${appDir.path}/images');
-      
-      if (!await savedDir.exists()) {
-        await savedDir.create(recursive: true);
-      }
-
-      final fileName = path.basename(imagePath);
-      final savedPath = path.join(savedDir.path, fileName);
-
-      final imageFile = File(imagePath);
-      await imageFile.copy(savedPath);
-
-      return savedPath;
-    } catch (e) {
-      print('Error saving image locally: $e');
-      return null;
-    }
-  }
-
-  // Dispose camera
-  void dispose() {
-    _controller?.dispose();
-    _controller = null;
-  }
-
-  // Get controller
-  CameraController? get controller => _controller;
-
-  // Check if camera is available
-  Future<bool> isCameraAvailable() async {
-    try {
-      final cameras = await getAvailableCameras();
-      return cameras.isNotEmpty;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // Switch camera
-  Future<CameraController?> switchCamera() async {
-    if (_controller == null) return null;
-
-    final currentDirection = _controller!.description.lensDirection;
-    final newDirection = currentDirection == CameraLensDirection.back
-        ? CameraLensDirection.front
-        : CameraLensDirection.back;
-
-    await _controller!.dispose();
-    return await initializeCamera(direction: newDirection);
-  }
-
-  // Get image file size
-  Future<int> getFileSize(String filePath) async {
-    try {
-      final file = File(filePath);
       return await file.length();
     } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error getting file size: $e');
+      }
       return 0;
     }
   }
 
-  // Format file size
-  String formatFileSize(int bytes) {
+  /// แปลงขนาดไฟล์เป็นข้อความ (KB, MB)
+  static String formatFileSize(int bytes) {
     if (bytes < 1024) {
       return '$bytes B';
     } else if (bytes < 1024 * 1024) {
       return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    } else {
+    } else if (bytes < 1024 * 1024 * 1024) {
       return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    } else {
+      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    }
+  }
+
+  /// ลบไฟล์ชั่วคราว
+  static Future<void> deleteFile(File file) async {
+    try {
+      if (await file.exists()) {
+        await file.delete();
+        if (kDebugMode) {
+          print('🗑️ File deleted: ${file.path}');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error deleting file: $e');
+      }
+    }
+  }
+
+  /// ย้ายไฟล์ไปยัง directory ถาวร
+  static Future<File?> saveToGallery(File imageFile) async {
+    try {
+      // ใช้ path_provider เพื่อหา documents directory
+      final directory = await getApplicationDocumentsDirectory();
+      final fileName = 'IMG_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final savedPath = path.join(directory.path, fileName);
+      
+      // คัดลอกไฟล์
+      final savedFile = await imageFile.copy(savedPath);
+      
+      if (kDebugMode) {
+        print('💾 Image saved: ${savedFile.path}');
+      }
+      
+      return savedFile;
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error saving image: $e');
+      }
+      return null;
     }
   }
 }

@@ -1,122 +1,217 @@
+import 'dart:io';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import '../config/api_config.dart';
-import '../models/checkpoint_model.dart';
-import 'storage_service.dart';
+import 'package:http_parser/http_parser.dart';
+import 'package:flutter/foundation.dart';
+import '../config/app_config.dart';
 
 class CheckpointService {
-  final StorageService _storageService = StorageService();
+  // ✅ ใช้ static final แทน const (ถ้า baseUrl ไม่ใช่ compile-time constant)
+  static final String baseUrl = AppConfig.baseUrl;
 
-  // Get all checkpoints
-  Future<Map<String, dynamic>> getCheckpoints() async {
+  /// ดึงรายการจุดตรวจทั้งหมด
+  static Future<Map<String, dynamic>> getCheckpoints(String token) async {
     try {
       if (kDebugMode) {
-        debugPrint('╔════════════════════════════════════════╗');
-        debugPrint('║     FETCHING CHECKPOINTS               ║');
-        debugPrint('╚════════════════════════════════════════╝');
-      }
-
-      final token = await _storageService.getToken();
-
-      if (kDebugMode) {
-        debugPrint('🔐 Token check:');
-        debugPrint('   - Token exists: ${token != null}');
-        debugPrint('   - Token is empty: ${token?.isEmpty ?? true}');
-        if (token != null && token.isNotEmpty) {
-          debugPrint('   - Token length: ${token.length}');
-          debugPrint('   - Token preview: ${token.substring(0, min(50, token.length))}...');
-        }
-      }
-
-      if (token == null || token.isEmpty) {
-        if (kDebugMode) {
-          debugPrint('❌ No token found');
-        }
-        return {
-          'success': false,
-          'message': 'ไม่พบ Token กรุณาเข้าสู่ระบบอีกครั้ง',
-        };
-      }
-
-      final url = '${ApiConfig.baseUrl}/checkpoints/list.php';
-
-      if (kDebugMode) {
-        debugPrint('📍 URL: $url');
-        debugPrint('🔑 Token: ${token.substring(0, min(30, token.length))}...');
+        print('╔════════════════════════════════════════╗');
+        print('║     FETCHING CHECKPOINTS               ║');
+        print('╚════════════════════════════════════════╝');
       }
 
       final response = await http.get(
-        Uri.parse(url),
-        headers: ApiConfig.getHeaders(token: token),
-      ).timeout(ApiConfig.connectTimeout);
+        Uri.parse('$baseUrl/checkpoints/list.php'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 30));
 
       if (kDebugMode) {
-        debugPrint('📊 Status Code: ${response.statusCode}');
-        debugPrint('📋 Headers: ${response.headers}');
-        debugPrint('📄 Response: ${response.body.substring(0, min(500, response.body.length))}...');
+        print('📊 Status Code: ${response.statusCode}');
+        print('📄 Response: ${response.body}');
       }
 
-      final data = jsonDecode(response.body);
-
-      if (response.statusCode == 200 && data['success'] == true) {
-        List<CheckpointModel> checkpoints = [];
-        
-        if (data['data']['checkpoints'] != null) {
-          checkpoints = (data['data']['checkpoints'] as List)
-              .map((e) => CheckpointModel.fromJson(e))
-              .toList();
-        }
-
-        CheckpointStatistics? statistics;
-        if (data['data']['statistics'] != null) {
-          statistics = CheckpointStatistics.fromJson(data['data']['statistics']);
-        }
-
-        if (kDebugMode) {
-          debugPrint('✅ Successfully loaded ${checkpoints.length} checkpoints');
-          debugPrint('📊 Statistics:');
-          debugPrint('   Total: ${statistics?.total ?? 0}');
-          debugPrint('   Required: ${statistics?.required ?? 0}');
-          debugPrint('   Optional: ${statistics?.optional ?? 0}');
-        }
-
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
         return {
-          'success': true,
-          'message': data['message'],
-          'checkpoints': checkpoints,
-          'statistics': statistics,
+          'success': data['success'] ?? false,
+          'message': data['message'] ?? '',
+          'checkpoints': data['data']?['checkpoints'] ?? [],
+          'statistics': data['data']?['statistics'] ?? {},
         };
       } else if (response.statusCode == 401) {
-        if (kDebugMode) {
-          debugPrint('❌ Unauthorized - Token may be expired');
-        }
         return {
           'success': false,
           'message': 'Token หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง',
           'token_expired': true,
         };
       } else {
-        if (kDebugMode) {
-          debugPrint('❌ Failed with status: ${response.statusCode}');
-        }
         return {
           'success': false,
-          'message': data['message'] ?? 'ดึงข้อมูลไม่สำเร็จ',
+          'message': 'เกิดข้อผิดพลาด (HTTP ${response.statusCode})',
         };
       }
-    } catch (e, stackTrace) {
+    } catch (e) {
       if (kDebugMode) {
-        debugPrint('❌ Exception in getCheckpoints: $e');
-        debugPrint('📍 StackTrace: $stackTrace');
+        print('❌ Exception in getCheckpoints: $e');
       }
       return {
         'success': false,
-        'message': 'เกิดข้อผิดพลาด: ${e.toString()}',
+        'message': 'เกิดข้อผิดพลาด: $e',
       };
     }
   }
 
-  // Helper method
-  int min(int a, int b) => a < b ? a : b;
+  /// ตรวจสอบ NFC UID
+  static Future<Map<String, dynamic>> verifyNfc(
+    String token,
+    String nfcUid,
+  ) async {
+    try {
+      if (kDebugMode) {
+        print('╔════════════════════════════════════════╗');
+        print('║        VERIFYING NFC TAG               ║');
+        print('╚════════════════════════════════════════╝');
+        print('🔑 NFC UID: $nfcUid');
+      }
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/checkpoints/verify_nfc.php'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: json.encode({
+          'nfc_uid': nfcUid,
+        }),
+      ).timeout(const Duration(seconds: 30));
+
+      if (kDebugMode) {
+        print('📊 Status Code: ${response.statusCode}');
+        print('📄 Response: ${response.body}');
+      }
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return {
+          'success': data['success'] ?? false,
+          'message': data['message'] ?? '',
+          'checkpoint': data['data']?['checkpoint'],
+          'nfc_tag_id': data['data']?['nfc_tag_id'],
+        };
+      } else {
+        return {
+          'success': false,
+          'message': 'ไม่สามารถตรวจสอบ NFC ได้',
+        };
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Exception in verifyNfc: $e');
+      }
+      return {
+        'success': false,
+        'message': 'เกิดข้อผิดพลาด: $e',
+      };
+    }
+  }
+
+  /// บันทึกการตรวจจุด (พร้อมรูปภาพ)
+  static Future<Map<String, dynamic>> logCheckpoint({
+    required String token,
+    required int sessionId,
+    required int checkpointId,
+    String? nfcUid,
+    String? notes,
+    File? photo,
+    double? latitude,
+    double? longitude,
+  }) async {
+    try {
+      if (kDebugMode) {
+        print('╔════════════════════════════════════════╗');
+        print('║      LOGGING CHECKPOINT                ║');
+        print('╚════════════════════════════════════════╝');
+        print('📍 Session ID: $sessionId');
+        print('📍 Checkpoint ID: $checkpointId');
+        print('🔑 NFC UID: $nfcUid');
+        print('📸 Has Photo: ${photo != null}');
+      }
+
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/checkpoints/log_checkpoint.php'),
+      );
+
+      // Headers
+      request.headers['Authorization'] = 'Bearer $token';
+
+      // Form fields
+      request.fields['session_id'] = sessionId.toString();
+      request.fields['checkpoint_id'] = checkpointId.toString();
+      
+      if (nfcUid != null) {
+        request.fields['nfc_uid'] = nfcUid;
+      }
+      
+      if (notes != null && notes.isNotEmpty) {
+        request.fields['notes'] = notes;
+      }
+      
+      if (latitude != null) {
+        request.fields['latitude'] = latitude.toString();
+      }
+      
+      if (longitude != null) {
+        request.fields['longitude'] = longitude.toString();
+      }
+
+      // Add photo if available
+      if (photo != null) {
+        var photoFile = await http.MultipartFile.fromPath(
+          'photo',
+          photo.path,
+          contentType: MediaType('image', 'jpeg'),
+        );
+        request.files.add(photoFile);
+      }
+
+      // Send request
+      var streamedResponse = await request.send().timeout(
+        const Duration(seconds: 60),
+      );
+
+      var response = await http.Response.fromStream(streamedResponse);
+
+      if (kDebugMode) {
+        print('📊 Status Code: ${response.statusCode}');
+        print('📄 Response: ${response.body}');
+      }
+
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return {
+          'success': data['success'] ?? false,
+          'message': data['message'] ?? '',
+          'log_id': data['data']?['log_id'],
+          'checkpoint_name': data['data']?['checkpoint_name'],
+          'progress': data['data']?['progress'],
+        };
+      } else {
+        final data = json.decode(response.body);
+        return {
+          'success': false,
+          'message': data['message'] ?? 'ไม่สามารถบันทึกได้',
+        };
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Exception in logCheckpoint: $e');
+      }
+      return {
+        'success': false,
+        'message': 'เกิดข้อผิดพลาด: $e',
+      };
+    }
+  }
 }

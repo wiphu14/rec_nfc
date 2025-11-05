@@ -2,75 +2,53 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:camera/camera.dart';
-import '../../config/app_config.dart';
-import '../../models/checkpoint_model.dart';
-import '../../models/session_model.dart';
-import '../../models/nfc_scan_result.dart';
 import '../../providers/camera_provider.dart';
-import '../../widgets/loading_widget.dart';
 
 class CameraCaptureScreen extends StatefulWidget {
-  final CheckpointModel checkpoint;
-  final SessionModel session;
-  final NfcScanResult scanResult;
+  final Function(File) onImageCaptured;
 
   const CameraCaptureScreen({
-    Key? key,
-    required this.checkpoint,
-    required this.session,
-    required this.scanResult,
-  }) : super(key: key);
+    super.key,
+    required this.onImageCaptured,
+  });
 
   @override
   State<CameraCaptureScreen> createState() => _CameraCaptureScreenState();
 }
 
-class _CameraCaptureScreenState extends State<CameraCaptureScreen>
-    with WidgetsBindingObserver {
-  bool _isFlashOn = false;
-
+class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _initializeCamera();
+    _initCamera();
   }
 
-  Future<void> _initializeCamera() async {
+  Future<void> _initCamera() async {
     final cameraProvider = Provider.of<CameraProvider>(context, listen: false);
     
-    final isAvailable = await cameraProvider.isCameraAvailable();
+    // ✅ ใช้ checkCameraAvailability แทน isCameraAvailable
+    final hasCamera = await cameraProvider.checkCameraAvailability();
     
-    if (!isAvailable) {
-      _showCameraNotAvailableDialog();
-      return;
+    if (hasCamera && mounted) {
+      await cameraProvider.initializeCamera();
+    } else if (mounted) {
+      _showErrorDialog('ไม่พบกล้อง', 'อุปกรณ์นี้ไม่มีกล้อง');
     }
-
-    await cameraProvider.initializeCamera();
   }
 
-  void _showCameraNotAvailableDialog() {
+  void _showErrorDialog(String title, String message) {
     showDialog(
       context: context,
-      barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.error_outline, color: AppConfig.errorColor),
-            SizedBox(width: 8),
-            Text('กล้องไม่พร้อมใช้งาน'),
-          ],
-        ),
-        content: const Text(
-          'ไม่พบกล้องในอุปกรณ์หรือไม่ได้รับอนุญาตให้เข้าถึงกล้อง\n\nกรุณาตรวจสอบการอนุญาต',
-        ),
+        title: Text(title),
+        content: Text(message),
         actions: [
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
+              Navigator.pop(context); // ปิด dialog
+              Navigator.pop(context); // กลับไปหน้าก่อนหน้า
             },
-            child: const Text('ปิด'),
+            child: const Text('ตกลง'),
           ),
         ],
       ),
@@ -79,88 +57,26 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
 
   Future<void> _takePicture() async {
     final cameraProvider = Provider.of<CameraProvider>(context, listen: false);
-    
-    final imagePath = await cameraProvider.takePicture();
-    
-    if (imagePath == null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            cameraProvider.errorMessage ?? 'ไม่สามารถถ่ายรูปได้',
+
+    final File? imageFile = await cameraProvider.takePicture();
+
+    if (imageFile != null && mounted) {
+      // แสดงหน้า preview
+      final confirmed = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (context) => _ImagePreviewScreen(
+            imageFile: imageFile,
           ),
-          backgroundColor: AppConfig.errorColor,
         ),
       );
-    }
-  }
 
-  Future<void> _toggleFlash() async {
-    final cameraProvider = Provider.of<CameraProvider>(context, listen: false);
-    
-    if (cameraProvider.controller == null) return;
-
-    try {
-      if (_isFlashOn) {
-        await cameraProvider.controller!.setFlashMode(FlashMode.off);
-      } else {
-        await cameraProvider.controller!.setFlashMode(FlashMode.torch);
+      if (confirmed == true && mounted) {
+        // ส่งรูปกลับไป
+        widget.onImageCaptured(imageFile);
+        Navigator.pop(context);
       }
-      
-      setState(() {
-        _isFlashOn = !_isFlashOn;
-      });
-    } catch (e) {
-      print('Error toggling flash: $e');
     }
-  }
-
-  Future<void> _switchCamera() async {
-    final cameraProvider = Provider.of<CameraProvider>(context, listen: false);
-    await cameraProvider.switchCamera();
-  }
-
-  void _confirmImage() {
-    final cameraProvider = Provider.of<CameraProvider>(context, listen: false);
-    
-    if (cameraProvider.capturedImagePath == null) return;
-
-    Navigator.pushReplacementNamed(
-      context,
-      '/event_note',
-      arguments: {
-        'checkpoint': widget.checkpoint,
-        'session': widget.session,
-        'scan_result': widget.scanResult,
-        'image_path': cameraProvider.capturedImagePath,
-      },
-    );
-  }
-
-  void _retakePicture() {
-    final cameraProvider = Provider.of<CameraProvider>(context, listen: false);
-    cameraProvider.retakePicture();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    final cameraProvider = Provider.of<CameraProvider>(context, listen: false);
-    
-    if (cameraProvider.controller == null || 
-        !cameraProvider.controller!.value.isInitialized) {
-      return;
-    }
-
-    if (state == AppLifecycleState.inactive) {
-      cameraProvider.controller!.dispose();
-    } else if (state == AppLifecycleState.resumed) {
-      _initializeCamera();
-    }
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
   }
 
   @override
@@ -169,251 +85,243 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
       backgroundColor: Colors.black,
       body: Consumer<CameraProvider>(
         builder: (context, cameraProvider, child) {
-          if (!cameraProvider.isInitialized) {
+          // ✅ ใช้ isCameraInitialized แทน isInitialized
+          if (!cameraProvider.isCameraInitialized) {
             return const Center(
-              child: LoadingWidget(color: Colors.white),
+              child: CircularProgressIndicator(
+                color: Colors.white,
+              ),
             );
           }
 
-          if (cameraProvider.capturedImagePath != null) {
-            return _buildPreviewView(cameraProvider.capturedImagePath!);
+          // แสดง error
+          if (cameraProvider.errorMessage != null) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    size: 60,
+                    color: Colors.red,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    cameraProvider.errorMessage!,
+                    style: const TextStyle(color: Colors.white),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () => _initCamera(),
+                    child: const Text('ลองอีกครั้ง'),
+                  ),
+                ],
+              ),
+            );
           }
 
-          return _buildCameraView(cameraProvider);
+          // ✅ ใช้ cameraController แทน controller
+          final controller = cameraProvider.cameraController;
+
+          if (controller == null) {
+            return const Center(
+              child: Text(
+                'กล้องไม่พร้อม',
+                style: TextStyle(color: Colors.white),
+              ),
+            );
+          }
+
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              // Camera Preview
+              Center(
+                child: AspectRatio(
+                  aspectRatio: controller.value.aspectRatio,
+                  child: CameraPreview(controller),
+                ),
+              ),
+
+              // Overlay UI
+              SafeArea(
+                child: Column(
+                  children: [
+                    // Top Bar
+                    _buildTopBar(context, cameraProvider),
+
+                    const Spacer(),
+
+                    // Bottom Bar
+                    _buildBottomBar(context, cameraProvider),
+                  ],
+                ),
+              ),
+            ],
+          );
         },
       ),
     );
   }
 
-  Widget _buildCameraView(CameraProvider cameraProvider) {
-    return Stack(
-      children: [
-        // Camera Preview
-        Positioned.fill(
-          child: CameraPreview(cameraProvider.controller!),
-        ),
-
-        // Top Bar
-        SafeArea(
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black.withOpacity(0.7),
-                  Colors.transparent,
-                ],
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // Back Button
-                IconButton(
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
-                  onPressed: () => Navigator.pop(context),
-                ),
-
-                // Checkpoint Info
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        widget.checkpoint.checkpointName,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'จุดที่ ${widget.checkpoint.sequenceOrder}',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // Flash Toggle
-                IconButton(
-                  icon: Icon(
-                    _isFlashOn ? Icons.flash_on : Icons.flash_off,
-                    color: Colors.white,
-                  ),
-                  onPressed: _toggleFlash,
-                ),
-              ],
-            ),
+  Widget _buildTopBar(BuildContext context, CameraProvider cameraProvider) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // ปุ่มปิด
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.white),
+            onPressed: () => Navigator.pop(context),
           ),
-        ),
 
-        // Bottom Controls
-        Positioned(
-          bottom: 0,
-          left: 0,
-          right: 0,
-          child: Container(
-            padding: const EdgeInsets.all(32),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.bottomCenter,
-                end: Alignment.topCenter,
-                colors: [
-                  Colors.black.withOpacity(0.7),
-                  Colors.transparent,
-                ],
-              ),
+          // ปุ่มสลับกล้อง
+          if (cameraProvider.availableCameras != null &&
+              cameraProvider.availableCameras!.length > 1)
+            IconButton(
+              icon: const Icon(Icons.flip_camera_ios, color: Colors.white),
+              onPressed: cameraProvider.isProcessing
+                  ? null
+                  : () => cameraProvider.switchCamera(),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                // Switch Camera
-                IconButton(
-                  icon: const Icon(
-                    Icons.flip_camera_ios,
-                    color: Colors.white,
-                    size: 32,
-                  ),
-                  onPressed: _switchCamera,
-                ),
-
-                // Capture Button
-                GestureDetector(
-                  onTap: cameraProvider.isTakingPicture ? null : _takePicture,
-                  child: Container(
-                    width: 70,
-                    height: 70,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Colors.white,
-                        width: 4,
-                      ),
-                    ),
-                    child: Container(
-                      margin: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Placeholder
-                const SizedBox(width: 48),
-              ],
-            ),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _buildPreviewView(String imagePath) {
-    return Stack(
-      children: [
-        // Image Preview
-        Positioned.fill(
-          child: Image.file(
-            File(imagePath),
-            fit: BoxFit.contain,
-          ),
-        ),
+  Widget _buildBottomBar(BuildContext context, CameraProvider cameraProvider) {
+    return Container(
+      padding: const EdgeInsets.all(32),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          const SizedBox(width: 60),
 
-        // Top Bar
-        SafeArea(
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black.withOpacity(0.7),
-                  Colors.transparent,
+          // ปุ่มถ่ายรูป
+          GestureDetector(
+            onTap: cameraProvider.isProcessing ? null : _takePicture,
+            child: Container(
+              width: 70,
+              height: 70,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.white,
+                  width: 4,
+                ),
+              ),
+              child: Container(
+                margin: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: cameraProvider.isProcessing
+                      ? Colors.grey
+                      : Colors.white,
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 60),
+        ],
+      ),
+    );
+  }
+}
+
+// ==========================================
+// Image Preview Screen
+// ==========================================
+
+class _ImagePreviewScreen extends StatelessWidget {
+  final File imageFile;
+
+  const _ImagePreviewScreen({
+    required this.imageFile,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Top Bar
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'ตรวจสอบรูปภาพ',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.pop(context, false),
+                  ),
                 ],
               ),
             ),
-            child: const Row(
-              children: [
-                Icon(Icons.check_circle, color: AppConfig.successColor),
-                SizedBox(width: 8),
-                Text(
-                  'ตรวจสอบรูปภาพ',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
 
-        // Bottom Controls
-        Positioned(
-          bottom: 0,
-          left: 0,
-          right: 0,
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.bottomCenter,
-                end: Alignment.topCenter,
-                colors: [
-                  Colors.black.withOpacity(0.8),
-                  Colors.transparent,
+            // Image Preview
+            Expanded(
+              child: Center(
+                child: Image.file(
+                  imageFile,
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+
+            // Bottom Buttons
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  // ปุ่มถ่ายใหม่
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => Navigator.pop(context, false),
+                      icon: const Icon(Icons.refresh, color: Colors.white),
+                      label: const Text(
+                        'ถ่ายใหม่',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.white),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 16),
+
+                  // ปุ่มใช้รูปนี้
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () => Navigator.pop(context, true),
+                      icon: const Icon(Icons.check),
+                      label: const Text('ใช้รูปนี้'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-            child: Row(
-              children: [
-                // Retake Button
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _retakePicture,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('ถ่ายใหม่'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: Colors.white),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-
-                // Confirm Button
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _confirmImage,
-                    icon: const Icon(Icons.check),
-                    label: const Text('ใช้รูปนี้'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppConfig.successColor,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
