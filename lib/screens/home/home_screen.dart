@@ -324,6 +324,12 @@ class _HomeScreenState extends State<HomeScreen> {
               childAspectRatio: 2,
               children: [
                 _buildQuickActionButton(
+                icon: Icons.play_circle,
+                label: 'เริ่มการตรวจ',
+                color: Colors.orange,
+                onTap: () => Navigator.pushNamed(context, '/start-session'),
+              ),
+                _buildQuickActionButton(
                   icon: Icons.location_on,
                   label: 'จุดตรวจ',
                   color: Colors.blue,

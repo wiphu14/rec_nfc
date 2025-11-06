@@ -18,7 +18,6 @@ class CheckpointScanScreen extends StatefulWidget {
 
 class _CheckpointScanScreenState extends State<CheckpointScanScreen> {
   bool _isVerifying = false;
-  String? _verifiedCheckpointName;
 
   @override
   void initState() {
@@ -28,7 +27,6 @@ class _CheckpointScanScreenState extends State<CheckpointScanScreen> {
 
   @override
   void dispose() {
-    // ✅ เรียก stopNfcScan แทน stopScan
     final nfcProvider = Provider.of<NfcProvider>(context, listen: false);
     nfcProvider.stopNfcScan();
     super.dispose();
@@ -38,7 +36,6 @@ class _CheckpointScanScreenState extends State<CheckpointScanScreen> {
     final nfcProvider = Provider.of<NfcProvider>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-    // ✅ เรียก startNfcScan แทน startScan และรับค่าที่ return
     await nfcProvider.startNfcScan(
       onTagDetected: (nfcUid) async {
         if (!mounted) return;
@@ -63,13 +60,8 @@ class _CheckpointScanScreenState extends State<CheckpointScanScreen> {
           final checkpoint = result['checkpoint'];
           
           if (checkpoint['id'] == widget.checkpoint['id']) {
-            // NFC ตรงกับจุดตรวจนี้
-            setState(() {
-              _verifiedCheckpointName = checkpoint['name'];
-            });
-
-            // แสดง success dialog
-            _showSuccessDialog(checkpoint['name']);
+            // ✅ NFC ตรงกับจุดตรวจนี้ - ส่ง UID กลับไป
+            Navigator.pop(context, nfcUid);
           } else {
             // NFC ไม่ตรงกับจุดตรวจนี้
             _showErrorDialog(
@@ -90,30 +82,7 @@ class _CheckpointScanScreenState extends State<CheckpointScanScreen> {
     );
   }
 
-  void _showSuccessDialog(String checkpointName) {
-    if (!mounted) return;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('✅ สำเร็จ'),
-        content: Text('ตรวจพบจุดตรวจ: $checkpointName'),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context); // ปิด dialog
-              Navigator.pop(context, true); // กลับไปหน้าก่อนหน้า พร้อมส่งผลลัพธ์
-            },
-            child: const Text('ตกลง'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showErrorDialog(String title, String message) {
-    if (!mounted) return;
-
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -122,7 +91,14 @@ class _CheckpointScanScreenState extends State<CheckpointScanScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('ตกลง'),
+            child: const Text('ลองอีกครั้ง'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); // ปิด dialog
+              Navigator.pop(context); // กลับหน้าก่อนหน้า
+            },
+            child: const Text('ยกเลิก'),
           ),
         ],
       ),
@@ -135,17 +111,6 @@ class _CheckpointScanScreenState extends State<CheckpointScanScreen> {
       appBar: AppBar(
         title: const Text('สแกน NFC'),
         backgroundColor: Colors.blue,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () {
-              // ✅ เรียก stopNfcScan แทน stopScan
-              final nfcProvider = Provider.of<NfcProvider>(context, listen: false);
-              nfcProvider.stopNfcScan();
-              Navigator.pop(context);
-            },
-          ),
-        ],
       ),
       body: Consumer<NfcProvider>(
         builder: (context, nfcProvider, child) {
@@ -155,12 +120,24 @@ class _CheckpointScanScreenState extends State<CheckpointScanScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // ไอคอน NFC แอนิเมชัน
+                  // ไอคอน NFC
                   if (nfcProvider.isScanning && !_isVerifying)
-                    const Icon(
-                      Icons.nfc,
-                      size: 100,
-                      color: Colors.blue,
+                    TweenAnimationBuilder(
+                      tween: Tween<double>(begin: 0.8, end: 1.2),
+                      duration: const Duration(milliseconds: 800),
+                      builder: (context, double scale, child) {
+                        return Transform.scale(
+                          scale: scale,
+                          child: const Icon(
+                            Icons.nfc,
+                            size: 100,
+                            color: Colors.blue,
+                          ),
+                        );
+                      },
+                      onEnd: () {
+                        if (mounted) setState(() {});
+                      },
                     ),
 
                   // ไอคอนกำลังตรวจสอบ
@@ -219,7 +196,7 @@ class _CheckpointScanScreenState extends State<CheckpointScanScreen> {
                       textAlign: TextAlign.center,
                     ),
 
-                  // แสดง error message (ถ้ามี)
+                  // แสดง error message
                   if (nfcProvider.errorMessage != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 20),
@@ -232,21 +209,6 @@ class _CheckpointScanScreenState extends State<CheckpointScanScreen> {
                         textAlign: TextAlign.center,
                       ),
                     ),
-
-                  const SizedBox(height: 30),
-
-                  // ปุ่มยกเลิก
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      nfcProvider.stopNfcScan();
-                      Navigator.pop(context);
-                    },
-                    icon: const Icon(Icons.cancel),
-                    label: const Text('ยกเลิก'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey,
-                    ),
-                  ),
                 ],
               ),
             ),

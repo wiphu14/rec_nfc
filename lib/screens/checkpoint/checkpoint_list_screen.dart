@@ -47,14 +47,20 @@ class _CheckpointListScreenState extends State<CheckpointListScreen> {
 
   Future<void> _loadData() async {
     print('📍 Loading checkpoints and session...');
-    
+
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final checkpointProvider = Provider.of<CheckpointProvider>(context, listen: false);
-    final sessionProvider = Provider.of<SessionProvider>(context, listen: false);
+    final checkpointProvider = Provider.of<CheckpointProvider>(
+      context,
+      listen: false,
+    );
+    final sessionProvider = Provider.of<SessionProvider>(
+      context,
+      listen: false,
+    );
 
     // ✅ ส่ง token เป็น parameter
     await checkpointProvider.loadCheckpoints(authProvider.token!);
-    
+
     // ✅ ไม่ต้องรับค่า return เพราะเป็น Future<void>
     await sessionProvider.loadActiveSession();
 
@@ -85,10 +91,7 @@ class _CheckpointListScreenState extends State<CheckpointListScreen> {
         title: const Text('รายการจุดตรวจ'),
         backgroundColor: Colors.blue,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _refreshData,
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _refreshData),
         ],
       ),
       body: RefreshIndicator(
@@ -97,9 +100,7 @@ class _CheckpointListScreenState extends State<CheckpointListScreen> {
           builder: (context, checkpointProvider, child) {
             // แสดง loading
             if (checkpointProvider.isLoading) {
-              return const Center(
-                child: CircularProgressIndicator(),
-              );
+              return const Center(child: CircularProgressIndicator());
             }
 
             // แสดง error
@@ -143,10 +144,7 @@ class _CheckpointListScreenState extends State<CheckpointListScreen> {
                     const SizedBox(height: 16),
                     const Text(
                       'ไม่มีจุดตรวจ',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey,
-                      ),
+                      style: TextStyle(fontSize: 18, color: Colors.grey),
                     ),
                     const SizedBox(height: 16),
                     ElevatedButton(
@@ -222,13 +220,7 @@ class _CheckpointListScreenState extends State<CheckpointListScreen> {
             color: color,
           ),
         ),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Colors.grey,
-          ),
-        ),
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
       ],
     );
   }
@@ -281,18 +273,15 @@ class _CheckpointListScreenState extends State<CheckpointListScreen> {
             const Icon(Icons.chevron_right),
           ],
         ),
+
         onTap: () async {
-          // ✅ ส่ง checkpoint.toMap() แทนที่จะส่ง model โดยตรง
-          final result = await Navigator.push(
+          // ✅ ไปหน้าตรวจจุดโดยตรง
+          final result = await Navigator.pushNamed(
             context,
-            MaterialPageRoute(
-              builder: (context) => CheckpointDetailScreen(
-                checkpoint: checkpoint.toMap(),
-              ),
-            ),
+            '/checkpoint-inspect',
+            arguments: checkpoint.toMap(),
           );
 
-          // Reload ถ้ามีการเปลี่ยนแปลง
           if (result == true && mounted) {
             _refreshData();
           }

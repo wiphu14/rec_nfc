@@ -19,6 +19,12 @@ import 'screens/checkpoint/checkpoint_scan_screen.dart';
 import 'screens/checkpoint/log_checkpoint_screen.dart';
 import 'screens/session/session_history_screen.dart';
 import 'screens/camera/camera_capture_screen.dart';
+import 'screens/session/start_session_screen.dart';
+import 'screens/event/event_note_screen.dart';
+import 'screens/checkpoint/checkpoint_inspection_screen.dart';
+import 'screens/admin/admin_menu_screen.dart';
+import 'screens/admin/nfc_management_screen.dart';
+import 'screens/admin/add_nfc_tag_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -55,22 +61,50 @@ class MyApp extends StatelessWidget {
 
           // Login Screen
           if (settings.name == '/login') {
-            return MaterialPageRoute(
-              builder: (context) => const LoginScreen(),
-            );
+            return MaterialPageRoute(builder: (context) => const LoginScreen());
           }
 
           // Home Screen
           if (settings.name == '/home') {
-            return MaterialPageRoute(
-              builder: (context) => const HomeScreen(),
-            );
+            return MaterialPageRoute(builder: (context) => const HomeScreen());
           }
 
           // Checkpoint List Screen
           if (settings.name == '/checkpoints') {
             return MaterialPageRoute(
               builder: (context) => const CheckpointListScreen(),
+            );
+          }
+
+          // Start Session Screen
+          if (settings.name == '/start-session') {
+            return MaterialPageRoute(
+              builder: (context) => const StartSessionScreen(),
+            );
+          }
+
+          if (settings.name == '/checkpoint-inspect') {
+            final checkpoint = settings.arguments as Map<String, dynamic>?;
+
+            if (checkpoint == null) {
+              return MaterialPageRoute(
+                builder: (context) => Scaffold(
+                  appBar: AppBar(title: const Text('ข้อผิดพลาด')),
+                  body: const Center(child: Text('ไม่พบข้อมูลจุดตรวจ')),
+                ),
+              );
+            }
+
+            return MaterialPageRoute(
+              builder: (context) =>
+                  CheckpointInspectionScreen(checkpoint: checkpoint),
+            );
+          }
+
+          // Event Note Screen
+          if (settings.name == '/event-note') {
+            return MaterialPageRoute(
+              builder: (context) => const EventNoteScreen(),
             );
           }
 
@@ -81,11 +115,30 @@ class MyApp extends StatelessWidget {
             );
           }
 
+          // เพิ่ม routes ใน onGenerateRoute
+          if (settings.name == '/admin-menu') {
+            return MaterialPageRoute(
+              builder: (context) => const AdminMenuScreen(),
+            );
+          }
+
+          if (settings.name == '/admin-nfc') {
+            return MaterialPageRoute(
+              builder: (context) => const NfcManagementScreen(),
+            );
+          }
+
+          if (settings.name == '/admin-nfc-add') {
+            return MaterialPageRoute(
+              builder: (context) => const AddNfcTagScreen(),
+            );
+          }
+
           // Checkpoint Detail Screen
           if (settings.name == '/checkpoint-detail') {
             // ✅ รับ Map<String, dynamic>
             final checkpoint = settings.arguments as Map<String, dynamic>?;
-            
+
             if (checkpoint == null) {
               return MaterialPageRoute(
                 builder: (context) => Scaffold(
@@ -96,14 +149,15 @@ class MyApp extends StatelessWidget {
             }
 
             return MaterialPageRoute(
-              builder: (context) => CheckpointDetailScreen(checkpoint: checkpoint),
+              builder: (context) =>
+                  CheckpointDetailScreen(checkpoint: checkpoint),
             );
           }
 
           // Checkpoint Scan Screen
           if (settings.name == '/checkpoint-scan') {
             final checkpoint = settings.arguments as Map<String, dynamic>?;
-            
+
             if (checkpoint == null) {
               return MaterialPageRoute(
                 builder: (context) => Scaffold(
@@ -114,14 +168,15 @@ class MyApp extends StatelessWidget {
             }
 
             return MaterialPageRoute(
-              builder: (context) => CheckpointScanScreen(checkpoint: checkpoint),
+              builder: (context) =>
+                  CheckpointScanScreen(checkpoint: checkpoint),
             );
           }
 
           // Log Checkpoint Screen
           if (settings.name == '/log-checkpoint') {
             final args = settings.arguments as Map<String, dynamic>?;
-            
+
             if (args == null) {
               return MaterialPageRoute(
                 builder: (context) => Scaffold(
@@ -134,7 +189,7 @@ class MyApp extends StatelessWidget {
             // ✅ ส่ง checkpointId และ nfcUid
             final checkpointId = args['checkpoint_id'] as int?;
             final nfcUid = args['nfc_uid'] as String?;
-            
+
             if (checkpointId == null) {
               return MaterialPageRoute(
                 builder: (context) => Scaffold(
@@ -157,7 +212,7 @@ class MyApp extends StatelessWidget {
             // ✅ รับ callback function
             final args = settings.arguments as Map<String, dynamic>?;
             final onImageCaptured = args?['onImageCaptured'] as Function(File)?;
-            
+
             if (onImageCaptured == null) {
               return MaterialPageRoute(
                 builder: (context) => Scaffold(
@@ -168,9 +223,8 @@ class MyApp extends StatelessWidget {
             }
 
             return MaterialPageRoute(
-              builder: (context) => CameraCaptureScreen(
-                onImageCaptured: onImageCaptured,
-              ),
+              builder: (context) =>
+                  CameraCaptureScreen(onImageCaptured: onImageCaptured),
             );
           }
 
@@ -178,9 +232,7 @@ class MyApp extends StatelessWidget {
           return MaterialPageRoute(
             builder: (context) => Scaffold(
               appBar: AppBar(title: const Text('ไม่พบหน้า')),
-              body: const Center(
-                child: Text('ไม่พบหน้าที่ต้องการ'),
-              ),
+              body: const Center(child: Text('ไม่พบหน้าที่ต้องการ')),
             ),
           );
         },
