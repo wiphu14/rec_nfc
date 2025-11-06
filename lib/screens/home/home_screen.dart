@@ -16,6 +16,24 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadData();
+    _debugUserRole();
+  }
+
+  // ✅ เพิ่มฟังก์ชัน debug เพื่อเช็ค role
+  void _debugUserRole() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final user = authProvider.user;
+      
+      print('╔════════════════════════════════════════╗');
+      print('║         DEBUG USER ROLE                ║');
+      print('╚════════════════════════════════════════╝');
+      print('👤 Username: ${user?.username}');
+      print('🎭 Role: ${user?.role}');
+      print('👑 Is Admin: ${authProvider.isAdmin}');
+      print('📧 Email: ${user?.email}');
+      print('═══════════════════════════════════════════');
+    });
   }
 
   Future<void> _loadData() async {
@@ -230,7 +248,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildActiveSessionContent(Map<String, dynamic> activeSession) {
-    // ✅ ดึง progress ออกมาก่อน
     final Map<String, dynamic>? progressData = 
         activeSession['progress'] as Map<String, dynamic>?;
     final int completed = progressData?['completed'] ?? 0;
@@ -300,6 +317,19 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildQuickActionsCard() {
+    final authProvider = Provider.of<AuthProvider>(context);
+    final user = authProvider.user;
+    
+    // ✅ เช็คหลายวิธี เพื่อความแน่ใจ
+    final isAdmin = authProvider.isAdmin || 
+                    user?.role?.toLowerCase() == 'admin' ||
+                    user?.isAdmin == true;
+
+    // ✅ Debug log
+    print('🔍 Quick Actions - Is Admin: $isAdmin');
+    print('🔍 User Role: ${user?.role}');
+    print('🔍 AuthProvider.isAdmin: ${authProvider.isAdmin}');
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       child: Padding(
@@ -315,34 +345,91 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const Divider(),
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: 2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 2,
+            
+            // ✅ ใช้ Column + Wrap แทน GridView เพื่อให้แสดงปุ่มได้ไม่จำกัด
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
               children: [
-                _buildQuickActionButton(
-                icon: Icons.play_circle,
-                label: 'เริ่มการตรวจ',
-                color: Colors.orange,
-                onTap: () => Navigator.pushNamed(context, '/start-session'),
-              ),
-                _buildQuickActionButton(
-                  icon: Icons.location_on,
-                  label: 'จุดตรวจ',
-                  color: Colors.blue,
-                  onTap: () => Navigator.pushNamed(context, '/checkpoints'),
+                // ปุ่มเริ่มการตรวจ
+                SizedBox(
+                  width: (MediaQuery.of(context).size.width - 64) / 2,
+                  child: _buildQuickActionButton(
+                    icon: Icons.play_circle,
+                    label: 'เริ่มการตรวจ',
+                    color: Colors.orange,
+                    onTap: () => Navigator.pushNamed(context, '/start-session'),
+                  ),
                 ),
-                _buildQuickActionButton(
-                  icon: Icons.history,
-                  label: 'ประวัติ',
-                  color: Colors.green,
-                  onTap: () => Navigator.pushNamed(context, '/sessions'),
+                
+                // ปุ่มจุดตรวจ
+                SizedBox(
+                  width: (MediaQuery.of(context).size.width - 64) / 2,
+                  child: _buildQuickActionButton(
+                    icon: Icons.location_on,
+                    label: 'จุดตรวจ',
+                    color: Colors.blue,
+                    onTap: () => Navigator.pushNamed(context, '/checkpoints'),
+                  ),
                 ),
+                
+                // ปุ่มประวัติ
+                SizedBox(
+                  width: (MediaQuery.of(context).size.width - 64) / 2,
+                  child: _buildQuickActionButton(
+                    icon: Icons.history,
+                    label: 'ประวัติ',
+                    color: Colors.green,
+                    onTap: () => Navigator.pushNamed(context, '/sessions'),
+                  ),
+                ),
+                
+                // ✅ ปุ่ม Admin - แสดงเสมอถ้าเป็น admin
+                if (isAdmin)
+                  SizedBox(
+                    width: (MediaQuery.of(context).size.width - 64) / 2,
+                    child: _buildQuickActionButton(
+                      icon: Icons.admin_panel_settings,
+                      label: 'จัดการระบบ',
+                      color: Colors.purple,
+                      onTap: () {
+                        print('🎯 Admin button tapped!');
+                        Navigator.pushNamed(context, '/admin-menu');
+                      },
+                    ),
+                  ),
               ],
             ),
+            
+            // ✅ Debug info card (แสดงเฉพาะใน development)
+            if (isAdmin) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.purple[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.purple, width: 1),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.admin_panel_settings, 
+                         size: 16, 
+                         color: Colors.purple),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'คุณเข้าสู่ระบบในฐานะ Admin (${user?.role})',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.purple[700],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -359,6 +446,7 @@ class _HomeScreenState extends State<HomeScreen> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Container(
+        height: 80,
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
@@ -374,7 +462,9 @@ class _HomeScreenState extends State<HomeScreen> {
               style: TextStyle(
                 color: color,
                 fontWeight: FontWeight.bold,
+                fontSize: 13,
               ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),

@@ -303,29 +303,43 @@ class _AddNfcTagScreenState extends State<AddNfcTagScreen> {
   }
 
   Future<void> _scanNfc() async {
-    final nfcProvider = Provider.of<NfcProvider>(context, listen: false);
+  final nfcProvider = Provider.of<NfcProvider>(context, listen: false);
 
-    await nfcProvider.startNfcScan(
-      onTagDetected: (uid) {
-        if (mounted) {
-          setState(() {
-            _scannedUid = uid;
-          });
-          nfcProvider.stopNfcScan();
-        }
-      },
-      onError: (error) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('เกิดข้อผิดพลาด: $error'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      },
-    );
-  }
+  print('🎯 Starting NFC scan from UI...');
+
+  await nfcProvider.startNfcScan(
+    onTagDetected: (uid) {
+      print('🎉 Tag detected in UI: $uid');
+      if (mounted) {
+        setState(() {
+          _scannedUid = uid;
+        });
+        nfcProvider.stopNfcScan();
+        
+        // ✅ แสดง SnackBar เมื่อสแกนสำเร็จ
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ สแกน NFC สำเร็จ: $uid'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    },
+    onError: (error) {
+      print('❌ Error in UI: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ $error'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    },
+  );
+}
 
   Future<void> _submitNfcTag() async {
     if (_scannedUid == null) {

@@ -69,6 +69,12 @@ class MyApp extends StatelessWidget {
             return MaterialPageRoute(builder: (context) => const HomeScreen());
           }
 
+          if (settings.name == '/admin-menu') {
+            return MaterialPageRoute(
+              builder: (context) => const AdminMenuScreen(),
+            );
+          }
+
           // Checkpoint List Screen
           if (settings.name == '/checkpoints') {
             return MaterialPageRoute(
